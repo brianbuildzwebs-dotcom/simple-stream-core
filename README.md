@@ -72,6 +72,18 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173).
 
+### Routes
+
+| Path | Page | Access |
+|---|---|---|
+| `/` | Home (player) | Public |
+| `/embed` | Embeddable player | Public |
+| `/login` | Sign in | Public |
+| `/register` | Create account | Public |
+| `/forgot-password` | Password reset email | Public |
+| `/reset-password` | Set new password | Public |
+| `/admin` | Admin dashboard | Admin only |
+
 ### Build
 
 ```bash

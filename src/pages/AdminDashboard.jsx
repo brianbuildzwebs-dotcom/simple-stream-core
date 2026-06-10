@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import PlayerSettingsForm from '@/components/admin/PlayerSettingsForm';
 import ChatModerator from '@/components/admin/ChatModerator';
@@ -14,30 +14,8 @@ const TABS = [
 ];
 
 export default function AdminDashboard() {
-  const { user, isAuthenticated, isLoadingAuth, authChecked } = useAuth();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('settings');
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    if (!authChecked || isLoadingAuth) return;
-    if (!isAuthenticated) {
-      navigate('/login');
-      return;
-    }
-    if (user?.role !== 'admin') {
-      navigate('/');
-    }
-  }, [authChecked, isLoadingAuth, isAuthenticated, user, navigate]);
-
-  if (isLoadingAuth || !authChecked) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
-      </div>
-    );
-  }
-
-  if (!user || user.role !== 'admin') return null;
 
   return (
     <div className="min-h-screen bg-background">
@@ -52,7 +30,7 @@ export default function AdminDashboard() {
           <div>
             <h1 className="text-lg font-bold">Admin Dashboard</h1>
             <p className="text-[11px] text-muted-foreground -mt-0.5 font-medium">
-              Logged in as {user.full_name}
+              Logged in as {user?.full_name}
             </p>
           </div>
         </div>

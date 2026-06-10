@@ -68,6 +68,9 @@ next-env.d.ts
 .yarn/install-state.gz
 .pnpm-store/
 
+# Local tooling
+terminals/
+
 # Misc
 *.suo
 *.ntvs*
