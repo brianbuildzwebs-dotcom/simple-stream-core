@@ -1,8 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Save, Check } from 'lucide-react';
+
+const DEFAULT_SETTINGS = {
+  player_name: 'Simple Streams',
+  primary_color: '#3b82f6',
+  chat_enabled: true,
+  profanity_filter: false,
+};
 
 export default function PlayerSettingsForm() {
   const [settings, setSettings] = useState(null);
@@ -10,30 +17,59 @@ export default function PlayerSettingsForm() {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    base44.entities.PlayerSettings.list().then(list => {
-      if (list.length > 0) {
-        setSettings(list[0]);
-      } else {
-        base44.entities.PlayerSettings.create({
-          player_name: 'Simple Streams',
-          primary_color: '#3b82f6',
-          chat_enabled: true,
-          profanity_filter: false,
-        }).then(s => setSettings(s));
+    const load = async () => {
+      const { data, error } = await supabase
+        .from('player_settings')
+        .select('*')
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        console.warn('Failed to load settings:', error.message);
+        setSettings({ ...DEFAULT_SETTINGS });
+        return;
       }
-    });
+
+      if (data) {
+        setSettings(data);
+      } else {
+        const { data: created, error: createError } = await supabase
+          .from('player_settings')
+          .insert(DEFAULT_SETTINGS)
+          .select()
+          .single();
+
+        if (createError) {
+          console.warn('Failed to create settings:', createError.message);
+          setSettings({ ...DEFAULT_SETTINGS });
+        } else {
+          setSettings(created);
+        }
+      }
+    };
+
+    load();
   }, []);
 
   const handleSave = async () => {
     if (!settings) return;
     setSaving(true);
-    await base44.entities.PlayerSettings.update(settings.id, {
+
+    const payload = {
       player_name: settings.player_name,
       logo_url: settings.logo_url,
       primary_color: settings.primary_color,
       chat_enabled: settings.chat_enabled,
       profanity_filter: settings.profanity_filter,
-    });
+    };
+
+    if (settings.id) {
+      await supabase.from('player_settings').update(payload).eq('id', settings.id);
+    } else {
+      const { data } = await supabase.from('player_settings').insert(payload).select().single();
+      if (data) setSettings(data);
+    }
+
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
@@ -49,7 +85,7 @@ export default function PlayerSettingsForm() {
         <label className="text-sm font-medium">Player Name</label>
         <Input
           value={settings.player_name || ''}
-          onChange={e => setSettings({ ...settings, player_name: e.target.value })}
+          onChange={(e) => setSettings({ ...settings, player_name: e.target.value })}
           placeholder="Simple Streams"
           className="bg-secondary/50 border-border/50"
         />
@@ -60,7 +96,7 @@ export default function PlayerSettingsForm() {
         <label className="text-sm font-medium">Logo URL</label>
         <Input
           value={settings.logo_url || ''}
-          onChange={e => setSettings({ ...settings, logo_url: e.target.value })}
+          onChange={(e) => setSettings({ ...settings, logo_url: e.target.value })}
           placeholder="https://example.com/logo.png"
           className="bg-secondary/50 border-border/50"
         />
@@ -75,12 +111,12 @@ export default function PlayerSettingsForm() {
           <input
             type="color"
             value={settings.primary_color || '#3b82f6'}
-            onChange={e => setSettings({ ...settings, primary_color: e.target.value })}
+            onChange={(e) => setSettings({ ...settings, primary_color: e.target.value })}
             className="w-12 h-10 rounded-lg cursor-pointer border border-border/50 bg-secondary/50 p-1"
           />
           <Input
             value={settings.primary_color || ''}
-            onChange={e => setSettings({ ...settings, primary_color: e.target.value })}
+            onChange={(e) => setSettings({ ...settings, primary_color: e.target.value })}
             placeholder="#3b82f6"
             className="bg-secondary/50 border-border/50 font-mono max-w-36"
           />
@@ -94,7 +130,7 @@ export default function PlayerSettingsForm() {
           <input
             type="checkbox"
             checked={settings.chat_enabled ?? true}
-            onChange={e => setSettings({ ...settings, chat_enabled: e.target.checked })}
+            onChange={(e) => setSettings({ ...settings, chat_enabled: e.target.checked })}
             className="w-4 h-4 rounded accent-primary"
           />
           <div>
@@ -107,7 +143,7 @@ export default function PlayerSettingsForm() {
           <input
             type="checkbox"
             checked={settings.profanity_filter ?? false}
-            onChange={e => setSettings({ ...settings, profanity_filter: e.target.checked })}
+            onChange={(e) => setSettings({ ...settings, profanity_filter: e.target.checked })}
             className="w-4 h-4 rounded accent-primary"
           />
           <div>

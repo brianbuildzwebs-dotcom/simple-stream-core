@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { base44 } from '@/api/base44Client';
+import { useAuth } from '@/lib/AuthContext';
 import PlayerSettingsForm from '@/components/admin/PlayerSettingsForm';
 import ChatModerator from '@/components/admin/ChatModerator';
 import BannedUsersList from '@/components/admin/BannedUsersList';
@@ -14,22 +14,22 @@ const TABS = [
 ];
 
 export default function AdminDashboard() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const { user, isAuthenticated, isLoadingAuth, authChecked } = useAuth();
   const [activeTab, setActiveTab] = useState('settings');
   const navigate = useNavigate();
 
   useEffect(() => {
-    base44.auth.me()
-      .then(u => {
-        setUser(u);
-        if (!u || u.role !== 'admin') navigate('/');
-      })
-      .catch(() => navigate('/login'))
-      .finally(() => setLoading(false));
-  }, []);
+    if (!authChecked || isLoadingAuth) return;
+    if (!isAuthenticated) {
+      navigate('/login');
+      return;
+    }
+    if (user?.role !== 'admin') {
+      navigate('/');
+    }
+  }, [authChecked, isLoadingAuth, isAuthenticated, user, navigate]);
 
-  if (loading) {
+  if (isLoadingAuth || !authChecked) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
@@ -51,15 +51,16 @@ export default function AdminDashboard() {
           </div>
           <div>
             <h1 className="text-lg font-bold">Admin Dashboard</h1>
-            <p className="text-[11px] text-muted-foreground -mt-0.5 font-medium">Logged in as {user.full_name}</p>
+            <p className="text-[11px] text-muted-foreground -mt-0.5 font-medium">
+              Logged in as {user.full_name}
+            </p>
           </div>
         </div>
       </header>
 
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6">
-        {/* Tabs */}
         <div className="flex gap-1 mb-8 bg-secondary/50 rounded-lg p-1 w-fit">
-          {TABS.map(tab => {
+          {TABS.map((tab) => {
             const Icon = tab.icon;
             return (
               <button

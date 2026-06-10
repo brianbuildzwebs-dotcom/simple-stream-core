@@ -2,12 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { MessageCircle, Send, X, Users, Trash2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { motion, AnimatePresence } from 'framer-motion';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY
-);
+import { supabase } from '@/lib/supabase';
 
 export default function ChatOverlay({
   viewerCount,
@@ -64,10 +59,8 @@ export default function ChatOverlay({
     if (!inputValue.trim()) return;
 
     const newMessage = {
-      id: Date.now(),
-      user: 'You',
-      text: inputValue.trim(),
-      created_at: new Date().toISOString(),
+      user_name: 'You',
+      content: inputValue.trim(),
     };
 
     await supabase.from('messages').insert([newMessage]);
@@ -106,8 +99,8 @@ export default function ChatOverlay({
               ) : (
                 messages.map((msg) => (
                   <div className="message" key={msg.id}>
-                    <div className="message-user">{msg.user || 'User'}</div>
-                    <div className="message-text">{msg.text}</div>
+                    <div className="message-user">{msg.user_name || 'User'}</div>
+                    <div className="message-text">{msg.content}</div>
                     {isAdmin && (
                       <button
                         type="button"

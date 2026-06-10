@@ -1,0 +1,10 @@
+{
+  "name": "Simple Streams",
+  "short_name": "Streams",
+  "description": "Multi-source video streaming player",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0f",
+  "theme_color": "#3b82f6",
+  "icons": []
+}

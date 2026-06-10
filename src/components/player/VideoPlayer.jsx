@@ -2,7 +2,6 @@ import React, { useRef, useState, useEffect, useCallback } from 'react';
 import VideoControls from './VideoControls';
 import ChatOverlay from './ChatOverlay';
 import { Play, Radio } from 'lucide-react';
-import { base44 } from '@/api/base44Client';
 
 export default function VideoPlayer({ source, embed = false, onViewerCountChange, isAdmin = false, settings = {} }) {
   const videoRef = useRef(null);

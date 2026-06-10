@@ -1,39 +1,92 @@
-**Welcome to your Base44 project** 
+# Simple Stream Core
 
-**About**
+A multi-source video streaming player built with React, Vite, and Supabase.
 
-View and Edit  your app on [Base44.com](http://Base44.com) 
+Watch YouTube videos, upload local files, or connect RTMP streams — with a custom player UI and live chat overlay.
 
-This project contains everything you need to run your app locally.
+## Features
 
-**Edit the code in your local development environment**
+- **YouTube** — embed videos and playlists via URL
+- **File upload** — play local MP4/WebM/OGG files
+- **RTMP** — stream key input (playback UI scaffolded)
+- **Live chat** — real-time messages via Supabase
+- **Admin dashboard** — player settings, chat moderation, banned users
 
-Any change pushed to the repo will also be reflected in the Base44 Builder.
+## Tech Stack
 
-**Prerequisites:** 
+- React 18 + Vite 6
+- Tailwind CSS + shadcn/ui
+- Supabase (Auth, Realtime, PostgreSQL)
+- Framer Motion
 
-1. Clone the repository using the project's Git URL 
-2. Navigate to the project directory
-3. Install dependencies: `npm install`
-4. Create an `.env.local` file and set the right environment variables
+## Getting Started
+
+### Prerequisites
+
+- Node.js 18+
+- A [Supabase](https://supabase.com) project
+
+### Setup
+
+```bash
+git clone https://github.com/brianbuildzwebs-dotcom/simple-stream-core.git
+cd simple-stream-core
+npm install
+```
+
+Copy the environment template and fill in your Supabase credentials:
+
+```bash
+cp .env.example .env.local
+```
+
+```env
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+```
+
+Find these values in your Supabase dashboard under **Settings → API**.
+
+### Run locally
+
+```bash
+npm run dev
+```
+
+Open [http://localhost:5173](http://localhost:5173).
+
+### Build
+
+```bash
+npm run build
+npm run preview
+```
+
+## Project Structure
 
 ```
-VITE_BASE44_APP_ID=your_app_id
-VITE_BASE44_APP_BASE_URL=your_backend_url
-
-e.g.
-VITE_BASE44_APP_ID=cbef744a8545c389ef439ea6
-VITE_BASE44_APP_BASE_URL=https://my-to-do-list-81bfaad7.base44.app
+src/
+├── components/
+│   ├── player/     # VideoPlayer, SourceSelector, ChatOverlay
+│   ├── admin/      # Settings, moderation, bans
+│   └── ui/         # shadcn/ui primitives
+├── pages/          # Home, Embed, Auth, Admin
+├── lib/
+│   ├── supabase.js # Shared Supabase client
+│   └── AuthContext.jsx
+└── main.jsx        # App entry point
 ```
 
-Run the app: `npm run dev`
+## Scripts
 
-**Publish your changes**
+| Command | Description |
+|---|---|
+| `npm run dev` | Start dev server |
+| `npm run build` | Production build |
+| `npm run preview` | Preview production build |
+| `npm run lint` | Run ESLint |
+| `npm run typecheck` | Run TypeScript check |
 
-Open [Base44.com](http://Base44.com) and click on Publish.
+## License
 
-**Docs & Support**
-
-Documentation: [https://docs.base44.com/Integrations/Using-GitHub](https://docs.base44.com/Integrations/Using-GitHub)
-
-Support: [https://app.base44.com/support](https://app.base44.com/support)
+Private — all rights reserved.

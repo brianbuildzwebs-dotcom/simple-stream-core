@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { supabase } from '@/lib/supabase';
 import { UserCheck, UserX } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -7,19 +7,30 @@ export default function BannedUsersList() {
   const [bans, setBans] = useState([]);
 
   const load = async () => {
-    const list = await base44.entities.BannedUser.list();
-    setBans(list);
+    const { data, error } = await supabase
+      .from('banned_users')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (!error && data) setBans(data);
   };
 
   useEffect(() => {
     load();
-    const unsub = base44.entities.BannedUser.subscribe(() => load());
-    return () => unsub();
+
+    const channel = supabase
+      .channel('banned-users-admin')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'banned_users' }, () => load())
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const handleUnban = async (id) => {
-    await base44.entities.BannedUser.delete(id);
-    setBans(prev => prev.filter(b => b.id !== id));
+    await supabase.from('banned_users').delete().eq('id', id);
+    setBans((prev) => prev.filter((b) => b.id !== id));
   };
 
   return (
@@ -29,7 +40,9 @@ export default function BannedUsersList() {
           <UserX className="w-5 h-5 text-destructive" />
           Banned Users
         </h2>
-        <p className="text-xs text-muted-foreground mt-0.5">{bans.length} user{bans.length !== 1 ? 's' : ''} banned</p>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          {bans.length} user{bans.length !== 1 ? 's' : ''} banned
+        </p>
       </div>
 
       <div className="bg-card border border-border/50 rounded-xl overflow-hidden">
@@ -38,7 +51,7 @@ export default function BannedUsersList() {
         ) : (
           <div className="divide-y divide-border/30">
             <AnimatePresence>
-              {bans.map(ban => (
+              {bans.map((ban) => (
                 <motion.div
                   key={ban.id}
                   initial={{ opacity: 0 }}
