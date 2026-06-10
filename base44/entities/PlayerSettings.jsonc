@@ -1,0 +1,31 @@
+{
+  "name": "PlayerSettings",
+  "type": "object",
+  "properties": {
+    "player_name": {
+      "type": "string",
+      "default": "Simple Streams",
+      "description": "The display name of the player"
+    },
+    "logo_url": {
+      "type": "string",
+      "description": "URL for the player logo"
+    },
+    "primary_color": {
+      "type": "string",
+      "default": "#3b82f6",
+      "description": "Primary accent color (hex)"
+    },
+    "chat_enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether chat overlay is visible"
+    },
+    "profanity_filter": {
+      "type": "boolean",
+      "default": false,
+      "description": "Auto-filter profanity in chat"
+    }
+  },
+  "required": []
+}
