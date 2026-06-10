@@ -47,6 +47,23 @@ VITE_SUPABASE_ANON_KEY=your-anon-key
 
 Find these values in your Supabase dashboard under **Settings → API**.
 
+### Database setup
+
+1. Open your Supabase project → **SQL Editor** → **New query**
+2. Paste and run the migration file:
+   `supabase/migrations/20260610000000_initial_schema.sql`
+3. Register an account in the app (once auth routes are wired)
+4. Promote yourself to admin by running `supabase/seed_admin.sql` (update the email first)
+
+This creates four tables:
+
+| Table | Purpose |
+|---|---|
+| `profiles` | User roles (`viewer` / `admin`) |
+| `player_settings` | Branding, chat toggle, profanity filter |
+| `messages` | Live chat messages |
+| `banned_users` | Chat ban list |
+
 ### Run locally
 
 ```bash
