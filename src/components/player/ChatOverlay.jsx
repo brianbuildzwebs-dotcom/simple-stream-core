@@ -9,12 +9,10 @@ export default function ChatOverlay({
   isAdmin = false,
   chatEnabled = true,
   profanityFilter = false,
-  hasSource = false,
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
-  const [bannedNames, setBannedNames] = useState(new Set());
   const chatEndRef = useRef(null);
 
   useEffect(() => {
@@ -28,6 +26,10 @@ export default function ChatOverlay({
         (payload) => {
           if (payload.eventType === 'INSERT') {
             setMessages((prev) => [...prev, payload.new]);
+          } else if (payload.eventType === 'UPDATE') {
+            setMessages((prev) =>
+              prev.map((m) => (m.id === payload.new.id ? payload.new : m))
+            );
           } else if (payload.eventType === 'DELETE') {
             setMessages((prev) => prev.filter((m) => m.id !== payload.old.id));
           }
@@ -39,6 +41,7 @@ export default function ChatOverlay({
       const { data } = await supabase
         .from('messages')
         .select('*')
+        .eq('is_deleted', false)
         .order('created_at', { ascending: true })
         .limit(50);
       if (data) setMessages(data);
@@ -53,34 +56,42 @@ export default function ChatOverlay({
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, isOpen]);
 
   const sendMessage = async () => {
     if (!inputValue.trim()) return;
 
-    const newMessage = {
+    await supabase.from('messages').insert([{
       user_name: 'You',
       content: inputValue.trim(),
-    };
-
-    await supabase.from('messages').insert([newMessage]);
+    }]);
     setInputValue('');
   };
 
+  if (!chatEnabled) return null;
+
   return (
-    <div className="chat-overlay">
-      <div className="chat-header">
-        <div className="chat-title">
-          <MessageCircle className="icon" />
+    <div
+      className="absolute top-3 right-3 z-30 flex w-72 max-w-[calc(100%-1.5rem)] flex-col pointer-events-auto"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-black/70 px-3 py-2 backdrop-blur-md">
+        <div className="flex items-center gap-2 text-sm font-medium text-white">
+          <MessageCircle className="h-4 w-4 text-primary" />
           Live Chat
         </div>
 
-        <div className="chat-meta">
-          <Users className="icon" />
-          {viewerCount || 0} watching
+        <div className="flex items-center gap-2 text-xs text-white/70">
+          <Users className="h-3.5 w-3.5" />
+          {viewerCount || 0}
         </div>
 
-        <button type="button" onClick={() => setIsOpen((open) => !open)}>
+        <button
+          type="button"
+          onClick={() => setIsOpen((open) => !open)}
+          className="rounded-md p-1 text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+          aria-label={isOpen ? 'Close chat' : 'Open chat'}
+        >
           {isOpen ? <X size={18} /> : <MessageCircle size={18} />}
         </button>
       </div>
@@ -88,46 +99,57 @@ export default function ChatOverlay({
       <AnimatePresence initial={false}>
         {isOpen && (
           <motion.div
-            initial={{ opacity: 0, y: -6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            className="chat-content"
+            initial={{ opacity: 0, y: -6, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: 'auto' }}
+            exit={{ opacity: 0, y: -6, height: 0 }}
+            transition={{ duration: 0.2 }}
+            className="mt-2 overflow-hidden rounded-lg border border-white/10 bg-black/75 backdrop-blur-md"
           >
-            <div className="messages">
+            <div className="max-h-48 overflow-y-auto px-3 py-2">
               {messages.length === 0 ? (
-                <div className="empty-state">No messages yet.</div>
+                <p className="py-4 text-center text-xs text-white/50">No messages yet.</p>
               ) : (
-                messages.map((msg) => (
-                  <div className="message" key={msg.id}>
-                    <div className="message-user">{msg.user_name || 'User'}</div>
-                    <div className="message-text">{msg.content}</div>
-                    {isAdmin && (
-                      <button
-                        type="button"
-                        className="delete-button"
-                        onClick={async () => {
-                          await supabase.from('messages').delete().eq('id', msg.id);
-                        }}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    )}
-                  </div>
-                ))
+                messages
+                  .filter((m) => !m.is_deleted)
+                  .map((msg) => (
+                    <div key={msg.id} className="group mb-2 flex gap-2 last:mb-0">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold text-primary">
+                          {msg.user_name || 'User'}
+                        </p>
+                        <p className="text-sm text-white/90 break-words">{msg.content}</p>
+                      </div>
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          className="opacity-0 transition-opacity group-hover:opacity-100 text-white/50 hover:text-destructive"
+                          onClick={async () => {
+                            await supabase.from('messages').delete().eq('id', msg.id);
+                          }}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
+                  ))
               )}
               <div ref={chatEndRef} />
             </div>
 
-            <div className="chat-input">
+            <div className="flex gap-2 border-t border-white/10 p-2">
               <Input
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
                 placeholder="Type a message..."
-                className="flex-1"
+                className="h-8 flex-1 border-white/10 bg-white/5 text-sm text-white placeholder:text-white/40"
               />
-              <button type="button" onClick={sendMessage} className="send-button">
-                <Send size={16} />
+              <button
+                type="button"
+                onClick={sendMessage}
+                className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground transition-colors hover:bg-primary/90"
+              >
+                <Send size={14} />
               </button>
             </div>
           </motion.div>

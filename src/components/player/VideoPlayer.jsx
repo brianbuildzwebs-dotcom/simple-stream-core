@@ -194,7 +194,6 @@ export default function VideoPlayer({ source, embed = false, onViewerCountChange
           isAdmin={isAdmin}
           chatEnabled={settings.chat_enabled !== false}
           profanityFilter={settings.profanity_filter === true}
-          hasSource={!!source}
         />
       )}
       {source?.type !== 'youtube' && source && (
