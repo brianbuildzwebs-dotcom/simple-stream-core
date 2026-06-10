@@ -1,27 +1,30 @@
 import React, { useState } from 'react';
 import VideoPlayer from '@/components/player/VideoPlayer';
 import SourceSelector from '@/components/player/SourceSelector';
+import { usePlayerSettings } from '@/hooks/usePlayerSettings';
 import { Tv } from 'lucide-react';
 
 export default function Home() {
   const [source, setSource] = useState(null);
-
-  const handleSourceChange = (newSource) => {
-    setSource(newSource);
-  };
-
-  const settings = {
-    player_name: 'Simple Streams',
-    chat_enabled: true,
-  };
+  const { settings, loading } = usePlayerSettings();
 
   return (
     <main className="min-h-screen bg-slate-950 text-white">
       <div className="mx-auto max-w-6xl px-4 py-8">
         <header className="mb-8 flex items-center gap-3">
-          <Tv className="h-8 w-8 text-cyan-400" />
+          {settings.logo_url ? (
+            <img
+              src={settings.logo_url}
+              alt=""
+              className="h-8 w-8 rounded object-contain"
+            />
+          ) : (
+            <Tv className="h-8 w-8" style={{ color: settings.primary_color }} />
+          )}
           <div>
-            <h1 className="text-3xl font-semibold">{settings.player_name}</h1>
+            <h1 className="text-3xl font-semibold">
+              {loading ? 'Loading...' : settings.player_name}
+            </h1>
             <p className="text-sm text-slate-400">Stream, select sources, and enjoy.</p>
           </div>
         </header>
@@ -31,7 +34,7 @@ export default function Home() {
         </section>
 
         <section>
-          <SourceSelector selectedSource={source} onSourceChange={handleSourceChange} />
+          <SourceSelector selectedSource={source} onSourceChange={setSource} />
         </section>
       </div>
     </main>

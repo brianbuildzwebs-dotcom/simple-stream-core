@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import VideoPlayer from '@/components/player/VideoPlayer';
+import { usePlayerSettings } from '@/hooks/usePlayerSettings';
 
 export default function Embed() {
   const [source, setSource] = useState(null);
+  const { settings } = usePlayerSettings();
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -27,7 +29,7 @@ export default function Embed() {
   return (
     <div className="w-full h-screen bg-black flex items-center justify-center overflow-hidden">
       <div className="w-full h-full">
-        <VideoPlayer source={source} embed={true} />
+        <VideoPlayer source={source} embed settings={settings} />
       </div>
     </div>
   );

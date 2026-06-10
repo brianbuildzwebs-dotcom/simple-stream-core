@@ -3,13 +3,9 @@ import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Save, Check } from 'lucide-react';
+import { DEFAULT_PLAYER_SETTINGS } from '@/lib/player-settings';
 
-const DEFAULT_SETTINGS = {
-  player_name: 'Simple Streams',
-  primary_color: '#3b82f6',
-  chat_enabled: true,
-  profanity_filter: false,
-};
+const DEFAULT_SETTINGS = DEFAULT_PLAYER_SETTINGS;
 
 export default function PlayerSettingsForm() {
   const [settings, setSettings] = useState(null);
