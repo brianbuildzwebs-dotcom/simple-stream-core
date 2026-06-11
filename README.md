@@ -8,7 +8,7 @@ Watch YouTube videos, upload local files, or connect RTMP streams — with a cus
 
 - **YouTube** — embed videos and playlists via URL
 - **File upload** — play local MP4/WebM/OGG files
-- **RTMP** — stream key input (playback UI scaffolded)
+- **RTMP** — Cloudflare Stream ingest via OBS, HLS playback in browser
 - **Live chat** — real-time messages via Supabase
 - **Admin dashboard** — player settings, chat moderation, banned users
 
@@ -64,6 +64,25 @@ This creates four tables:
 | `player_settings` | Branding, chat toggle, profanity filter |
 | `messages` | Live chat messages |
 | `banned_users` | Chat ban list |
+
+### RTMP live stream test (OBS + Cloudflare)
+
+Browsers cannot play raw RTMP. This app plays the **HLS output** from Cloudflare Stream while you **ingest via RTMP** in OBS.
+
+1. In [Cloudflare Stream](https://dash.cloudflare.com/) → **Live inputs** → create or open a live input
+2. Copy the **RTMP URL**, **Stream key**, and **HLS playback URL** (manifest)
+3. Add to `.env.local`:
+   ```env
+   VITE_RTMP_SERVER_URL=rtmps://live.cloudflare.com:443/live/
+   VITE_RTMP_STREAM_KEY=your-stream-key
+   VITE_RTMP_HLS_URL=https://customer-xxx.cloudflarestream.com/xxx/manifest/video.m3u8
+   ```
+4. Restart `npm run dev`
+5. In OBS → **Settings → Stream** → Service: **Custom**
+   - Server: your `VITE_RTMP_SERVER_URL`
+   - Stream key: your `VITE_RTMP_STREAM_KEY`
+6. In the app → **RTMP Stream** tab → **Connect**
+7. Click **Start Streaming** in OBS — the player should show **LIVE**
 
 ### Run locally
 

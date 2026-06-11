@@ -1,7 +1,8 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import VideoControls from './VideoControls';
 import ChatOverlay from './ChatOverlay';
-import { Play, Radio } from 'lucide-react';
+import RtmpPlayer from './RtmpPlayer';
+import { Play } from 'lucide-react';
 
 export default function VideoPlayer({ source, embed = false, onViewerCountChange, isAdmin = false, settings = {} }) {
   const videoRef = useRef(null);
@@ -157,15 +158,7 @@ export default function VideoPlayer({ source, embed = false, onViewerCountChange
       );
     }
     if (source.type === 'rtmp') {
-      return (
-        <div className="absolute inset-0 flex items-center justify-center bg-black text-white">
-          <div className="text-center">
-            <p className="text-lg">RTMP Live Stream</p>
-            <p className="text-sm text-gray-400 mt-2">Waiting for incoming stream...</p>
-            <p className="text-xs text-gray-500 mt-8">Use OBS with your Cloudflare RTMP URL</p>
-          </div>
-        </div>
-      );
+      return <RtmpPlayer source={source} videoRef={videoRef} />;
     }
     if (source.type === 'file') {
       return (

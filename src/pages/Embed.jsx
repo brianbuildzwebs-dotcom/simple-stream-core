@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import VideoPlayer from '@/components/player/VideoPlayer';
 import { usePlayerSettings } from '@/hooks/usePlayerSettings';
+import { buildRtmpSource } from '@/lib/rtmp';
 
 export default function Embed() {
   const [source, setSource] = useState(null);
@@ -22,7 +23,7 @@ export default function Embed() {
       if (url) setSource({ type: 'file', url, fileName });
     } else if (type === 'rtmp') {
       const streamKey = params.get('key');
-      if (streamKey) setSource({ type: 'rtmp', streamKey });
+      if (streamKey) setSource(buildRtmpSource(streamKey));
     }
   }, []);
 

@@ -3,6 +3,7 @@ import { Youtube, Radio, Upload, Link, Key, FileVideo } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { motion, AnimatePresence } from 'framer-motion';
+import { buildRtmpSource, RTMP_SERVER_URL, RTMP_STREAM_KEY } from '@/lib/rtmp';
 
 const tabs = [
   { id: 'youtube', label: 'YouTube', icon: Youtube },
@@ -14,7 +15,7 @@ export default function SourceSelector({ onSourceChange, currentSource }) {
   const [activeTab, setActiveTab] = useState('youtube');
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [youtubeError, setYoutubeError] = useState('');
-  const [rtmpKey, setRtmpKey] = useState('');
+  const [rtmpKey, setRtmpKey] = useState(RTMP_STREAM_KEY);
   const fileInputRef = useRef(null);
 
   const extractYoutubeSource = (url) => {
@@ -45,7 +46,7 @@ export default function SourceSelector({ onSourceChange, currentSource }) {
 
   const handleRtmpSubmit = () => {
     if (rtmpKey.trim()) {
-      onSourceChange({ type: 'rtmp', streamKey: rtmpKey.trim() });
+      onSourceChange(buildRtmpSource(rtmpKey));
     }
   };
 
@@ -145,10 +146,11 @@ export default function SourceSelector({ onSourceChange, currentSource }) {
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              RTMP Server: <span className="font-mono text-foreground/70">rtmps://live.cloudflare.com:443/live/</span>
+              RTMP Server:{' '}
+              <span className="font-mono text-foreground/70 break-all">{RTMP_SERVER_URL}</span>
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              Stream Key: <span className="font-mono text-foreground/70">c02ac4eb6e4e7b42610023b10380912fkf1adccb8f7015545ad4e277c9980aef7</span>
+              Use these in OBS → Settings → Stream → Service: Custom
             </p>
           </motion.div>
         )}
