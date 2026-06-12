@@ -1,10 +1,20 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import VideoControls from './VideoControls';
 import ChatOverlay from './ChatOverlay';
+import PlayerToolsMenu from './PlayerToolsMenu';
 import RtmpPlayer from './RtmpPlayer';
+import YoutubePlayer from './YoutubePlayer';
+import { useViewerPresence } from '@/hooks/useViewerPresence';
+import { isYoutubeLiveUrl } from '@/lib/youtube';
 import { Play } from 'lucide-react';
 
-export default function VideoPlayer({ source, embed = false, onViewerCountChange, isAdmin = false, settings = {} }) {
+export default function VideoPlayer({
+  source,
+  embed = false,
+  onViewerCountChange,
+  isAdmin = false,
+  settings = {},
+}) {
   const videoRef = useRef(null);
   const containerRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -14,29 +24,24 @@ export default function VideoPlayer({ source, embed = false, onViewerCountChange
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [controlsVisible, setControlsVisible] = useState(true);
-  const [viewerCount, setViewerCount] = useState(0);
+  const [videoMountGen, setVideoMountGen] = useState(0);
+  const [youtubeIsLive, setYoutubeIsLive] = useState(false);
   const hideTimeout = useRef(null);
+  const viewerCount = useViewerPresence(!!source);
+  const isRtmp = source?.type === 'rtmp';
+  const isYoutube = source?.type === 'youtube';
 
-  // Simulated live viewer count — only active when a source is loaded
   useEffect(() => {
-    if (!source) {
-      setViewerCount(0);
-      onViewerCountChange?.(0);
-      return;
-    }
-    const base = 120 + Math.floor(Math.random() * 500);
-    setViewerCount(base);
-    onViewerCountChange?.(base);
-    const interval = setInterval(() => {
-      setViewerCount((prev) => {
-        const next = Math.max(50, prev + Math.floor(Math.random() * 21) - 10);
-        onViewerCountChange?.(next);
-        return next;
-      });
-    }, 4000);
-    return () => clearInterval(interval);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source]);
+    onViewerCountChange?.(viewerCount);
+  }, [viewerCount, onViewerCountChange]);
+
+  const handleRtmpPlayingChange = useCallback((playing) => {
+    setIsPlaying(playing);
+  }, []);
+
+  const handleRtmpVideoReady = useCallback(() => {
+    setVideoMountGen((n) => n + 1);
+  }, []);
 
   const showControls = useCallback(() => {
     setControlsVisible(true);
@@ -48,61 +53,86 @@ export default function VideoPlayer({ source, embed = false, onViewerCountChange
 
   useEffect(() => { showControls(); }, [isPlaying, showControls]);
 
-  // Reset playback state whenever source changes
   useEffect(() => {
     setCurrentTime(0);
     setDuration(0);
     setIsPlaying(false);
-  }, [source]);
+    setYoutubeIsLive(source?.isLive || isYoutubeLiveUrl(source?.url));
+    // Live streams start muted for browser autoplay — sync UI with actual state
+    if (source?.type === 'rtmp') {
+      setIsMuted(true);
+    } else {
+      setIsMuted(false);
+    }
+  }, [source?.type, source?.hlsUrl, source?.url, source?.videoId, source?.playlistId, source?.isLive]);
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || source?.type === 'youtube') return;
+    if (!video || isYoutube) return undefined;
+
     const onTimeUpdate = () => setCurrentTime(video.currentTime);
-    const onLoadedMetadata = () => setDuration(video.duration);
+    const onLoadedMetadata = () => {
+      setDuration(Number.isFinite(video.duration) ? video.duration : 0);
+    };
     const onPlay = () => setIsPlaying(true);
     const onPause = () => setIsPlaying(false);
+
     video.addEventListener('timeupdate', onTimeUpdate);
     video.addEventListener('loadedmetadata', onLoadedMetadata);
     video.addEventListener('play', onPlay);
     video.addEventListener('pause', onPause);
+
+    setIsPlaying(!video.paused);
+    setCurrentTime(video.currentTime);
+    onLoadedMetadata();
+    video.volume = volume;
+    video.muted = isMuted;
+
     return () => {
       video.removeEventListener('timeupdate', onTimeUpdate);
       video.removeEventListener('loadedmetadata', onLoadedMetadata);
       video.removeEventListener('play', onPlay);
       video.removeEventListener('pause', onPause);
     };
-  }, [source]);
+  }, [isYoutube, isRtmp, source?.url, source?.hlsUrl, videoMountGen, volume, isMuted]);
 
   const handlePlayPause = () => {
-    if (source?.type === 'youtube') return;
+    if (isYoutube) return;
     const video = videoRef.current;
     if (!video) return;
-    video.paused ? video.play() : video.pause();
+    if (video.paused) {
+      video.play().then(() => setIsPlaying(true)).catch(() => {});
+    } else {
+      video.pause();
+      setIsPlaying(false);
+    }
   };
 
   const handleVolumeChange = (val) => {
     setVolume(val);
-    setIsMuted(val === 0);
-    if (videoRef.current && source?.type !== 'youtube') {
-      videoRef.current.volume = val;
-      videoRef.current.muted = val === 0;
+    const muted = val === 0;
+    setIsMuted(muted);
+    const video = videoRef.current;
+    if (video && !isYoutube) {
+      video.volume = val;
+      video.muted = muted;
     }
   };
 
   const handleMuteToggle = () => {
     const newMuted = !isMuted;
     setIsMuted(newMuted);
-    if (videoRef.current && source?.type !== 'youtube') {
-      videoRef.current.muted = newMuted;
+    const video = videoRef.current;
+    if (video && !isYoutube) {
+      video.muted = newMuted;
+      if (!newMuted && volume > 0) {
+        video.volume = volume;
+      }
     }
   };
 
-  // handleSeek(e, skipSeconds, fraction)
-  // - skipSeconds: skip ±N seconds (from skip buttons)
-  // - fraction: 0..1 position along progress bar (from bar click)
   const handleSeek = (e, skipSeconds, fraction) => {
-    if (source?.type === 'youtube') return;
+    if (isYoutube || isRtmp) return;
     const video = videoRef.current;
     if (!video || !isFinite(video.duration)) return;
     if (skipSeconds) {
@@ -138,27 +168,27 @@ export default function VideoPlayer({ source, embed = false, onViewerCountChange
         </div>
       );
     }
-    if (source.type === 'youtube') {
-      let embedSrc;
-      if (source.videoId) {
-        const listParam = source.playlistId ? `&list=${source.playlistId}` : '';
-        embedSrc = `https://www.youtube.com/embed/${source.videoId}?autoplay=1&rel=0&modestbranding=1&playsinline=1${listParam}`;
-      } else if (source.playlistId) {
-        embedSrc = `https://www.youtube.com/embed/videoseries?list=${source.playlistId}&autoplay=1&rel=0&modestbranding=1&playsinline=1`;
-      }
-      if (!embedSrc) return null;
+    if (isYoutube) {
       return (
-        <iframe
-          className="absolute inset-0 w-full h-full"
-          src={embedSrc}
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"
-          allowFullScreen
-          title="YouTube Player"
+        <YoutubePlayer
+          source={source}
+          viewerCount={viewerCount}
+          onPlayingChange={setIsPlaying}
+          onLiveChange={setYoutubeIsLive}
         />
       );
     }
-    if (source.type === 'rtmp') {
-      return <RtmpPlayer source={source} videoRef={videoRef} />;
+    if (isRtmp) {
+      return (
+        <RtmpPlayer
+          hlsUrl={source.hlsUrl}
+          embed={embed}
+          viewerCount={viewerCount}
+          videoRef={videoRef}
+          onPlayingChange={handleRtmpPlayingChange}
+          onVideoReady={handleRtmpVideoReady}
+        />
+      );
     }
     if (source.type === 'file') {
       return (
@@ -166,6 +196,7 @@ export default function VideoPlayer({ source, embed = false, onViewerCountChange
           ref={videoRef}
           src={source.url}
           className="absolute inset-0 w-full h-full object-contain bg-black"
+          playsInline
           onClick={handlePlayPause}
         />
       );
@@ -176,20 +207,29 @@ export default function VideoPlayer({ source, embed = false, onViewerCountChange
   return (
     <div
       ref={containerRef}
-      className={`relative w-full bg-black overflow-hidden ${embed ? 'h-screen' : 'aspect-video rounded-xl'}`}
+      className={`relative w-full bg-black overflow-hidden ${
+        embed ? 'h-full min-h-0 flex-1' : 'aspect-video rounded-xl'
+      }`}
       onMouseMove={showControls}
       onMouseLeave={() => isPlaying && setControlsVisible(false)}
+      onTouchStart={showControls}
+      onClick={embed ? showControls : undefined}
     >
       {renderContent()}
+      {source && !isYoutube && (
+        <PlayerToolsMenu videoRef={videoRef} visible={controlsVisible || !isPlaying} />
+      )}
       {source && (
         <ChatOverlay
           viewerCount={viewerCount}
           isAdmin={isAdmin}
           chatEnabled={settings.chat_enabled !== false}
           profanityFilter={settings.profanity_filter === true}
+          embed={embed}
+          hideViewerBadge={isRtmp || (isYoutube && youtubeIsLive)}
         />
       )}
-      {source?.type !== 'youtube' && source && (
+      {source && !isYoutube && (
         <VideoControls
           isPlaying={isPlaying}
           onPlayPause={handlePlayPause}
@@ -203,6 +243,7 @@ export default function VideoPlayer({ source, embed = false, onViewerCountChange
           duration={duration}
           onSeek={handleSeek}
           visible={controlsVisible}
+          live={isRtmp}
         />
       )}
     </div>

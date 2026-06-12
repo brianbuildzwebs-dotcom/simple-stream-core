@@ -1,14 +1,21 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { MessageCircle, Send, X, Users, Trash2 } from 'lucide-react';
+import { MessageCircle, Send, X, Trash2, ChevronUp, Users } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '@/lib/supabase';
 
+function formatViewerCount(n) {
+  if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}K`;
+  return n.toLocaleString();
+}
+
 export default function ChatOverlay({
-  viewerCount,
+  viewerCount = 0,
   isAdmin = false,
   chatEnabled = true,
   profanityFilter = false,
+  embed = false,
+  hideViewerBadge = false,
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState([]);
@@ -16,7 +23,7 @@ export default function ChatOverlay({
   const chatEndRef = useRef(null);
 
   useEffect(() => {
-    if (!chatEnabled) return;
+    if (!chatEnabled) return undefined;
 
     const channel = supabase
       .channel('chat-messages')
@@ -25,10 +32,12 @@ export default function ChatOverlay({
         { event: '*', schema: 'public', table: 'messages' },
         (payload) => {
           if (payload.eventType === 'INSERT') {
-            setMessages((prev) => [...prev, payload.new]);
+            setMessages((prev) => [...prev.slice(-49), payload.new]);
           } else if (payload.eventType === 'UPDATE') {
             setMessages((prev) =>
-              prev.map((m) => (m.id === payload.new.id ? payload.new : m))
+              payload.new.is_deleted
+                ? prev.filter((m) => m.id !== payload.new.id)
+                : prev.map((m) => (m.id === payload.new.id ? payload.new : m))
             );
           } else if (payload.eventType === 'DELETE') {
             setMessages((prev) => prev.filter((m) => m.id !== payload.old.id));
@@ -55,99 +64,134 @@ export default function ChatOverlay({
   }, [chatEnabled]);
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (isOpen) {
+      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages, isOpen]);
 
   const sendMessage = async () => {
     if (!inputValue.trim()) return;
 
-    await supabase.from('messages').insert([{
-      user_name: 'You',
-      content: inputValue.trim(),
-    }]);
+    let content = inputValue.trim();
+    if (profanityFilter) {
+      content = content.replace(/\b\w+\b/gi, (word) =>
+        /^(damn|hell|shit|fuck|ass|bitch)$/i.test(word) ? '***' : word
+      );
+    }
+
+    await supabase.from('messages').insert([
+      {
+        user_name: 'You',
+        content,
+      },
+    ]);
     setInputValue('');
   };
 
-  if (!chatEnabled) return null;
+  if (!chatEnabled) {
+    return null;
+  }
+
+  const visibleMessages = messages.filter((m) => !m.is_deleted);
+  const chatBtnClass = embed
+    ? 'absolute top-3 right-3 z-20 w-11 h-11 sm:w-10 sm:h-10'
+    : 'absolute top-4 right-4 z-20 w-10 h-10';
+
+  const panelClass = embed
+    ? 'absolute inset-x-0 bottom-0 sm:inset-x-auto sm:bottom-auto sm:top-14 sm:right-3 sm:left-auto z-30 flex flex-col bg-black/85 backdrop-blur-md rounded-t-2xl sm:rounded-xl border border-white/10 overflow-hidden pointer-events-auto max-h-[50vh] sm:max-h-none sm:w-80 sm:max-w-[calc(100%-1.5rem)] sm:h-[min(320px,calc(100%-5rem))]'
+    : 'absolute top-16 right-4 bottom-16 w-72 max-w-[calc(100%-2rem)] z-10 flex flex-col bg-black/60 backdrop-blur-md rounded-xl border border-white/10 overflow-hidden pointer-events-auto';
+
+  const tickerClass = embed
+    ? 'absolute bottom-16 sm:bottom-4 right-3 left-3 sm:left-auto z-10 max-w-none sm:max-w-[calc(100%-2rem)]'
+    : 'absolute bottom-4 right-4 z-10 max-w-[calc(100%-2rem)]';
 
   return (
-    <div
-      className="absolute top-3 right-3 z-30 flex w-72 max-w-[calc(100%-1.5rem)] flex-col pointer-events-auto"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <div className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-black/70 px-3 py-2 backdrop-blur-md">
-        <div className="flex items-center gap-2 text-sm font-medium text-white">
-          <MessageCircle className="h-4 w-4 text-primary" />
-          Live Chat
-        </div>
-
-        <div className="flex items-center gap-2 text-xs text-white/70">
-          <Users className="h-3.5 w-3.5" />
-          {viewerCount || 0}
-        </div>
-
-        <button
-          type="button"
-          onClick={() => setIsOpen((open) => !open)}
-          className="rounded-md p-1 text-white/80 transition-colors hover:bg-white/10 hover:text-white"
-          aria-label={isOpen ? 'Close chat' : 'Open chat'}
+    <>
+      {!hideViewerBadge && viewerCount > 0 && (
+        <div
+          className={`absolute z-20 flex items-center gap-1.5 rounded-full bg-black/60 backdrop-blur-sm border border-white/10 px-2.5 py-1.5 pointer-events-none ${
+            embed ? 'top-3 right-14' : 'top-4 right-14'
+          }`}
         >
-          {isOpen ? <X size={18} /> : <MessageCircle size={18} />}
-        </button>
-      </div>
+          <Users className="w-3.5 h-3.5 text-white/70" />
+          <span className="text-xs font-medium text-white/90">
+            {formatViewerCount(viewerCount)} watching
+          </span>
+        </div>
+      )}
 
-      <AnimatePresence initial={false}>
+      <button
+        type="button"
+        onClick={() => setIsOpen((open) => !open)}
+        className={`${chatBtnClass} rounded-full bg-black/50 backdrop-blur-sm border border-white/10 flex items-center justify-center text-white/70 hover:text-white hover:bg-black/70 transition-all touch-manipulation`}
+        aria-label={isOpen ? 'Hide chat' : 'Show chat'}
+      >
+        {isOpen ? <X className="w-4 h-4" /> : <MessageCircle className="w-4 h-4" />}
+      </button>
+
+      <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ opacity: 0, y: -6, height: 0 }}
-            animate={{ opacity: 1, y: 0, height: 'auto' }}
-            exit={{ opacity: 0, y: -6, height: 0 }}
-            transition={{ duration: 0.2 }}
-            className="mt-2 overflow-hidden rounded-lg border border-white/10 bg-black/75 backdrop-blur-md"
+            initial={embed ? { opacity: 0, y: 40 } : { opacity: 0, x: 20 }}
+            animate={embed ? { opacity: 1, y: 0 } : { opacity: 1, x: 0 }}
+            exit={embed ? { opacity: 0, y: 40 } : { opacity: 0, x: 20 }}
+            transition={{ duration: 0.25 }}
+            className={panelClass}
+            onClick={(e) => e.stopPropagation()}
           >
-            <div className="max-h-48 overflow-y-auto px-3 py-2">
-              {messages.length === 0 ? (
-                <p className="py-4 text-center text-xs text-white/50">No messages yet.</p>
+            <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between flex-shrink-0">
+              <span className="text-sm font-semibold text-white">Live Chat</span>
+              <span className="text-xs text-white/40">{visibleMessages.length} messages</span>
+            </div>
+
+            <div className="flex-1 overflow-y-auto overscroll-contain px-3 py-2 space-y-2 min-h-[120px] sm:min-h-0">
+              {visibleMessages.length === 0 ? (
+                <p className="py-6 text-center text-xs text-white/50">No messages yet. Say hello!</p>
               ) : (
-                messages
-                  .filter((m) => !m.is_deleted)
-                  .map((msg) => (
-                    <div key={msg.id} className="group mb-2 flex gap-2 last:mb-0">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-semibold text-primary">
-                          {msg.user_name || 'User'}
-                        </p>
-                        <p className="text-sm text-white/90 break-words">{msg.content}</p>
-                      </div>
-                      {isAdmin && (
-                        <button
-                          type="button"
-                          className="opacity-0 transition-opacity group-hover:opacity-100 text-white/50 hover:text-destructive"
-                          onClick={async () => {
-                            await supabase.from('messages').delete().eq('id', msg.id);
-                          }}
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      )}
+                visibleMessages.map((msg) => (
+                  <motion.div
+                    key={msg.id}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={`text-sm flex items-start gap-1 group ${
+                      msg.user_name === 'You' ? 'bg-primary/10 rounded-lg px-2 py-1' : ''
+                    }`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <span className="font-semibold text-primary">{msg.user_name || 'User'}</span>
+                      <span className="text-white/70 ml-1.5 break-words">{msg.content}</span>
                     </div>
-                  ))
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await supabase.from('messages').delete().eq('id', msg.id);
+                        }}
+                        className="flex-shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-red-400 hover:text-red-300 transition-all mt-0.5 touch-manipulation"
+                        aria-label="Delete message"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </motion.div>
+                ))
               )}
               <div ref={chatEndRef} />
             </div>
 
-            <div className="flex gap-2 border-t border-white/10 p-2">
+            <div className="flex gap-2 border-t border-white/10 p-3 flex-shrink-0 safe-area-pb">
               <Input
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
                 placeholder="Type a message..."
-                className="h-8 flex-1 border-white/10 bg-white/5 text-sm text-white placeholder:text-white/40"
+                className="h-10 sm:h-9 flex-1 border-white/10 bg-white/5 text-base sm:text-sm text-white placeholder:text-white/40"
               />
               <button
                 type="button"
                 onClick={sendMessage}
-                className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground transition-colors hover:bg-primary/90"
+                className="flex h-10 w-10 sm:h-9 sm:w-9 items-center justify-center rounded-md bg-primary text-primary-foreground transition-colors hover:bg-primary/90 flex-shrink-0 touch-manipulation"
+                aria-label="Send message"
               >
                 <Send size={14} />
               </button>
@@ -155,6 +199,20 @@ export default function ChatOverlay({
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+
+      {!isOpen && visibleMessages.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setIsOpen(true)}
+          className={`${tickerClass} flex items-center gap-2 px-3 py-2.5 rounded-lg bg-black/50 backdrop-blur-sm border border-white/10 text-xs text-white/80 hover:bg-black/70 transition-all pointer-events-auto touch-manipulation`}
+        >
+          <ChevronUp className="w-3.5 h-3.5 flex-shrink-0" />
+          <span className="truncate">
+            Latest: <span className="text-white/60">{visibleMessages.at(-1)?.user_name}:</span>{' '}
+            {visibleMessages.at(-1)?.content}
+          </span>
+        </button>
+      )}
+    </>
   );
 }

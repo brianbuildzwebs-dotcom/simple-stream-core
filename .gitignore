@@ -59,6 +59,10 @@ next-env.d.ts
 
 # Vercel / deployment
 .vercel/
+.wrangler/
+
+# Local debug scripts (not part of the app)
+agent-tools/
 
 # Optional npm/yarn/pnpm
 .npm

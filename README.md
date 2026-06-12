@@ -53,6 +53,8 @@ Find these values in your Supabase dashboard under **Settings → API**.
 2. Paste and run the migration files (in order):
    - `supabase/migrations/20260610000000_initial_schema.sql`
    - `supabase/migrations/20260610000001_player_settings_realtime.sql`
+   - `supabase/migrations/20260610000002_complete_partial_setup.sql`
+   - `supabase/migrations/20260610000003_fix_messages_columns.sql`
 3. Register an account in the app
 4. Promote yourself to admin by running `supabase/seed_admin.sql` (update the email first)
 
@@ -111,6 +113,58 @@ npm run build
 npm run preview
 ```
 
+### Deploy to Cloudflare Pages
+
+The app is set up for [Cloudflare Pages](https://pages.cloudflare.com/) with a Pages Function at `/api/youtube-live` (playlist LIVE badge detection).
+
+#### Option A — Git deploy (recommended)
+
+1. Push this repo to GitHub
+2. Cloudflare dashboard → **Workers & Pages** → **Create** → **Pages** → **Connect to Git**
+3. Select the repo and use these build settings:
+
+| Setting | Value |
+|---|---|
+| Build command | `npm run build` |
+| Build output directory | `dist` |
+| Root directory | `/` |
+
+4. Under **Settings → Environment variables**, add (at least for **Production**):
+
+| Variable | Required | Notes |
+|---|---|---|
+| `VITE_SUPABASE_URL` | Yes | From Supabase → Settings → API |
+| `VITE_SUPABASE_ANON_KEY` | Yes | Anon/public key |
+| `VITE_RTMP_STREAM_KEY` | Optional | Default RTMP key in the player |
+| `VITE_RTMP_HLS_URL` | Optional | Default HLS manifest URL |
+| `VITE_RTMP_SERVER_URL` | Optional | Defaults to Cloudflare RTMPS |
+| `VITE_RTMP_CUSTOMER_CODE` | Optional | Builds HLS URL from stream key |
+| `VITE_YOUTUBE_API_KEY` | Optional | Extra LIVE detection via YouTube Data API |
+
+5. Deploy. Every push to `main` rebuilds automatically.
+
+#### Option B — CLI deploy
+
+```bash
+npm install
+npx wrangler login
+npm run pages:deploy
+```
+
+Preview the production build locally (static + API function):
+
+```bash
+npm run build
+npm run pages:dev
+```
+
+#### After deploy
+
+- Home player: `https://your-project.pages.dev/`
+- Embed: `https://your-project.pages.dev/embed?...`
+- YouTube embeds require **HTTPS** (Pages provides this)
+- Add a custom domain under **Pages → Custom domains** if needed
+
 ## Project Structure
 
 ```
@@ -135,6 +189,8 @@ src/
 | `npm run preview` | Preview production build |
 | `npm run lint` | Run ESLint |
 | `npm run typecheck` | Run TypeScript check |
+| `npm run pages:deploy` | Build and deploy to Cloudflare Pages |
+| `npm run pages:dev` | Preview `dist` with Pages Functions locally |
 
 ## License
 

@@ -1,37 +1,33 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import VideoPlayer from '@/components/player/VideoPlayer';
 import { usePlayerSettings } from '@/hooks/usePlayerSettings';
-import { buildRtmpSource } from '@/lib/rtmp';
+import { parseEmbedSource } from '@/lib/embed-params';
+
+function parseEmbedOptions(search = '') {
+  const params = new URLSearchParams(search);
+  return {
+    chatEnabled: params.get('chat') !== '0',
+  };
+}
 
 export default function Embed() {
-  const [source, setSource] = useState(null);
-  const { settings } = usePlayerSettings();
+  const search = typeof window !== 'undefined' ? window.location.search : '';
+  const [source] = useState(() => parseEmbedSource(search));
+  const embedOptions = useMemo(() => parseEmbedOptions(search), [search]);
+  const { settings, loading } = usePlayerSettings();
 
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const type = params.get('source');
-    if (type === 'youtube') {
-      const id = params.get('id');
-      const list = params.get('list');
-      const url = params.get('url') || '';
-      const videoId = id && id !== 'null' ? id : null;
-      const playlistId = list && list !== 'null' ? list : null;
-      if (videoId || playlistId) setSource({ type: 'youtube', videoId, playlistId, url });
-    } else if (type === 'file') {
-      const url = params.get('url');
-      const fileName = params.get('name') || 'Video';
-      if (url) setSource({ type: 'file', url, fileName });
-    } else if (type === 'rtmp') {
-      const streamKey = params.get('key');
-      if (streamKey) setSource(buildRtmpSource(streamKey));
-    }
-  }, []);
+  const mergedSettings = {
+    ...settings,
+    chat_enabled: embedOptions.chatEnabled && settings.chat_enabled !== false,
+  };
 
   return (
-    <div className="w-full h-screen bg-black flex items-center justify-center overflow-hidden">
-      <div className="w-full h-full">
-        <VideoPlayer source={source} embed settings={settings} />
-      </div>
+    <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-black supports-[min-height:100dvh]:min-h-[100dvh]">
+      <VideoPlayer
+        source={source}
+        embed
+        settings={loading ? { chat_enabled: embedOptions.chatEnabled } : mergedSettings}
+      />
     </div>
   );
 }

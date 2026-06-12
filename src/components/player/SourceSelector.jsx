@@ -1,9 +1,19 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Youtube, Radio, Upload, Link, Key, FileVideo } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { motion, AnimatePresence } from 'framer-motion';
-import { buildRtmpSource, RTMP_SERVER_URL, RTMP_STREAM_KEY } from '@/lib/rtmp';
+import {
+  buildRtmpSource,
+  RTMP_SERVER_URL,
+  RTMP_STREAM_KEY,
+  RTMP_HLS_URL,
+  resolveHlsUrl,
+  normalizeStreamKey,
+  validateStreamKey,
+  validateHlsManifestUrl,
+} from '@/lib/rtmp';
+import { isYoutubeLiveUrl } from '@/lib/youtube';
 
 const tabs = [
   { id: 'youtube', label: 'YouTube', icon: Youtube },
@@ -16,7 +26,22 @@ export default function SourceSelector({ onSourceChange, currentSource }) {
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [youtubeError, setYoutubeError] = useState('');
   const [rtmpKey, setRtmpKey] = useState(RTMP_STREAM_KEY);
+  const [rtmpHlsUrl, setRtmpHlsUrl] = useState(RTMP_HLS_URL);
+  const [rtmpKeyError, setRtmpKeyError] = useState('');
+  const [rtmpHlsError, setRtmpHlsError] = useState('');
   const fileInputRef = useRef(null);
+  const autoConnected = useRef(false);
+
+  useEffect(() => {
+    if (autoConnected.current || currentSource) return;
+    const keyCheck = validateStreamKey(rtmpKey);
+    const hlsCheck = validateHlsManifestUrl(rtmpHlsUrl);
+    if (keyCheck.valid && hlsCheck.valid && resolveHlsUrl(keyCheck.key, hlsCheck.url)) {
+      autoConnected.current = true;
+      onSourceChange(buildRtmpSource(keyCheck.key, hlsCheck.url));
+      setActiveTab('rtmp');
+    }
+  }, [currentSource, onSourceChange, rtmpKey, rtmpHlsUrl]);
 
   const extractYoutubeSource = (url) => {
     // Check for playlist
@@ -29,25 +54,62 @@ export default function SourceSelector({ onSourceChange, currentSource }) {
       const match = url.match(pattern);
       if (match) { videoId = match[1]; break; }
     }
-    if (videoId) return { videoId, playlistId: playlistMatch?.[1] || null };
-    if (playlistMatch) return { videoId: null, playlistId: playlistMatch[1] };
+    if (videoId) {
+      return {
+        videoId,
+        playlistId: playlistMatch?.[1] || null,
+        isLive: isYoutubeLiveUrl(url),
+      };
+    }
+    if (playlistMatch) return { videoId: null, playlistId: playlistMatch[1], isLive: false };
     return null;
   };
 
   const handleYoutubeSubmit = () => {
     setYoutubeError('');
-    const result = extractYoutubeSource(youtubeUrl.trim());
+    const trimmed = youtubeUrl.trim();
+    const result = extractYoutubeSource(trimmed);
     if (result) {
-      onSourceChange({ type: 'youtube', ...result, url: youtubeUrl.trim() });
+      onSourceChange({ type: 'youtube', ...result, url: trimmed });
     } else {
       setYoutubeError('Could not find a valid YouTube video or playlist URL.');
     }
   };
 
-  const handleRtmpSubmit = () => {
-    if (rtmpKey.trim()) {
-      onSourceChange(buildRtmpSource(rtmpKey));
+  const handleStreamKeyChange = (value) => {
+    if (/^rtmps?:\/\//i.test(value.trim())) {
+      setRtmpKey(normalizeStreamKey(value));
+    } else {
+      setRtmpKey(value.replace(/[^a-fA-F0-9kK]/g, '').toLowerCase());
     }
+    setRtmpKeyError('');
+  };
+
+  const handleRtmpSubmit = () => {
+    setRtmpKeyError('');
+    setRtmpHlsError('');
+
+    const keyCheck = validateStreamKey(rtmpKey);
+    if (!keyCheck.valid) {
+      setRtmpKeyError(keyCheck.error);
+      return;
+    }
+
+    const hlsCheck = validateHlsManifestUrl(rtmpHlsUrl);
+    if (!hlsCheck.valid) {
+      setRtmpHlsError(hlsCheck.error);
+      return;
+    }
+
+    if (!resolveHlsUrl(keyCheck.key, hlsCheck.url)) {
+      setRtmpHlsError(
+        'Add a valid HLS manifest URL, or set VITE_RTMP_HLS_URL / VITE_RTMP_CUSTOMER_CODE in .env.local.'
+      );
+      return;
+    }
+
+    setRtmpKey(keyCheck.key);
+    onSourceChange(buildRtmpSource(keyCheck.key, hlsCheck.url));
   };
 
   const handleFileUpload = (e) => {
@@ -134,10 +196,17 @@ export default function SourceSelector({ onSourceChange, currentSource }) {
               <div className="relative flex-1">
                 <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
-                  placeholder="Enter stream key..."
+                  placeholder="RTMPS stream key from Cloudflare..."
                   value={rtmpKey}
-                  onChange={(e) => setRtmpKey(e.target.value)}
+                  onChange={(e) => handleStreamKeyChange(e.target.value)}
+                  onPaste={(e) => {
+                    e.preventDefault();
+                    handleStreamKeyChange(e.clipboardData.getData('text'));
+                  }}
                   onKeyDown={(e) => e.key === 'Enter' && handleRtmpSubmit()}
+                  spellCheck={false}
+                  autoComplete="off"
+                  inputMode="text"
                   className="pl-10 bg-secondary/50 border-border/50 h-11 font-mono text-sm"
                 />
               </div>
@@ -145,13 +214,43 @@ export default function SourceSelector({ onSourceChange, currentSource }) {
                 Connect
               </Button>
             </div>
+            {rtmpKeyError && <p className="text-xs text-destructive">{rtmpKeyError}</p>}
+            <div className="relative">
+              <Link className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="HLS Manifest URL (from Cloudflare live input → Playback)..."
+                value={rtmpHlsUrl}
+                onChange={(e) => {
+                  setRtmpHlsUrl(e.target.value.trim());
+                  setRtmpHlsError('');
+                }}
+                onKeyDown={(e) => e.key === 'Enter' && handleRtmpSubmit()}
+                spellCheck={false}
+                autoComplete="off"
+                className="pl-10 bg-secondary/50 border-border/50 h-11 font-mono text-xs"
+              />
+            </div>
+            {rtmpHlsError && <p className="text-xs text-destructive">{rtmpHlsError}</p>}
             <p className="text-xs text-muted-foreground">
               RTMP Server:{' '}
               <span className="font-mono text-foreground/70 break-all">{RTMP_SERVER_URL}</span>
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              Use these in OBS → Settings → Stream → Service: Custom
+              Use these in vMix → Settings → Streaming → Custom RTMP Server
             </p>
+            {!resolveHlsUrl(rtmpKey, rtmpHlsUrl) && (
+              <p className="text-xs text-amber-500/90">
+                Paste the HLS Manifest URL above, or set{' '}
+                <span className="font-mono">VITE_RTMP_HLS_URL</span> in{' '}
+                <span className="font-mono">.env.local</span> and restart the dev server.
+              </p>
+            )}
+            {resolveHlsUrl(rtmpKey, rtmpHlsUrl) && (
+              <p className="text-xs text-muted-foreground">
+                Recording must be <strong>Automatic</strong> on this Cloudflare live input or HLS
+                playback stays empty.
+              </p>
+            )}
           </motion.div>
         )}
 

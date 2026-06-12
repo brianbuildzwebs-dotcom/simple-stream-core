@@ -4,11 +4,13 @@ import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { UserPlus, Mail, Lock, Loader2 } from "lucide-react";
+import { UserPlus, Mail, Lock, Loader2, ExternalLink } from "lucide-react";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import AuthLayout from "@/components/AuthLayout";
 import GoogleIcon from "@/components/GoogleIcon";
 import { toast } from "@/components/ui/use-toast";
+
+const authRedirectTo = () => `${window.location.origin}/`;
 
 export default function Register() {
   const [email, setEmail] = useState("");
@@ -16,7 +18,7 @@ export default function Register() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [showOtp, setShowOtp] = useState(false);
+  const [showVerify, setShowVerify] = useState(false);
   const [otpCode, setOtpCode] = useState("");
 
   const handleSubmit = async (e) => {
@@ -28,9 +30,17 @@ export default function Register() {
     }
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signUp({ email, password });
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { emailRedirectTo: authRedirectTo() },
+      });
       if (error) throw error;
-      setShowOtp(true);
+      if (data.session) {
+        window.location.href = "/";
+        return;
+      }
+      setShowVerify(true);
     } catch (err) {
       setError(err.message || "Registration failed");
     } finally {
@@ -59,43 +69,67 @@ export default function Register() {
   const handleResend = async () => {
     setError("");
     try {
-      const { error } = await supabase.auth.resend({ type: "signup", email });
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email,
+        options: { emailRedirectTo: authRedirectTo() },
+      });
       if (error) throw error;
       toast({
-        title: "Code sent",
-        description: "Check your email for the new code.",
+        title: "Email sent",
+        description: "Check your inbox for a new confirmation link or code.",
       });
     } catch (err) {
-      setError(err.message || "Failed to resend code");
+      setError(err.message || "Failed to resend email");
     }
   };
 
   const handleGoogle = async () => {
+    setError("");
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}/` },
+      options: { redirectTo: authRedirectTo() },
     });
     if (error) setError(error.message);
   };
 
-  if (showOtp) {
+  if (showVerify) {
     return (
       <AuthLayout
         icon={Mail}
-        title="Verify your email"
-        subtitle={`We sent a code to ${email}`}
+        title="Check your email"
+        subtitle={`We sent a confirmation to ${email}`}
       >
         {error && (
           <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
             {error}
           </div>
         )}
-        <div className="flex justify-center mb-6">
+
+        <div className="mb-6 space-y-3 rounded-lg border border-border/50 bg-secondary/30 p-4 text-sm text-muted-foreground">
+          <p className="flex items-start gap-2">
+            <ExternalLink className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary" />
+            <span>
+              <strong className="text-foreground">Most common:</strong> open the email and click
+              the <strong className="text-foreground">Confirm your mail</strong> link. You should
+              land back on this app, logged in.
+            </span>
+          </p>
+          <p>
+            If the link looks broken, add this URL in Supabase → Authentication → URL
+            Configuration → Redirect URLs:{" "}
+            <span className="font-mono text-xs text-foreground">{authRedirectTo()}</span>
+          </p>
+        </div>
+
+        <p className="mb-3 text-center text-xs text-muted-foreground">
+          Email shows a 6-digit code instead? Enter it here:
+        </p>
+        <div className="mb-6 flex justify-center">
           <InputOTP
             maxLength={6}
             value={otpCode}
             onChange={setOtpCode}
-            autoFocus
             autoComplete="one-time-code"
           >
             <InputOTPGroup>
@@ -119,14 +153,20 @@ export default function Register() {
               Verifying...
             </>
           ) : (
-            "Verify"
+            "Verify with code"
           )}
         </Button>
         <p className="text-center text-sm text-muted-foreground mt-4">
-          Didn't receive the code?{" "}
+          Didn't receive it?{" "}
           <button onClick={handleResend} className="text-primary font-medium hover:underline">
-            Resend
+            Resend email
           </button>
+        </p>
+        <p className="text-center text-sm text-muted-foreground mt-3">
+          Already confirmed?{" "}
+          <Link to="/login" className="text-primary font-medium hover:underline">
+            Log in
+          </Link>
         </p>
       </AuthLayout>
     );

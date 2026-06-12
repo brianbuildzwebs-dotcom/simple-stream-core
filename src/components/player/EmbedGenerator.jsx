@@ -2,36 +2,25 @@ import React, { useState } from 'react';
 import { Code, Copy, Check, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { motion, AnimatePresence } from 'framer-motion';
-
-function buildEmbedUrl(source) {
-  const APP_BASE_URL = window.location.origin;
-  if (!source) return '';
-  if (source.type === 'youtube') {
-    let url = `${APP_BASE_URL}/embed?source=youtube`;
-    if (source.videoId) url += `&id=${source.videoId}`;
-    if (source.playlistId) url += `&list=${source.playlistId}`;
-    url += `&url=${encodeURIComponent(source.url)}`;
-    return url;
-  }
-  if (source.type === 'file') {
-    return `${APP_BASE_URL}/embed?source=file&url=${encodeURIComponent(source.url)}&name=${encodeURIComponent(source.fileName || 'Video')}`;
-  }
-  if (source.type === 'rtmp') {
-    return `${APP_BASE_URL}/embed?source=rtmp&key=${encodeURIComponent(source.streamKey)}`;
-  }
-  return '';
-}
+import { buildEmbedUrl } from '@/lib/embed-url';
 
 export default function EmbedGenerator({ source }) {
   const [isOpen, setIsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [width, setWidth] = useState('800');
-  const [height, setHeight] = useState('450');
 
   const embedUrl = buildEmbedUrl(source);
 
   const embedCode = source
-    ? `<iframe\n  width="${width}"\n  height="${height}"\n  src="${embedUrl}"\n  frameborder="0"\n  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen"\n  allowfullscreen\n  style="border-radius: 12px; border: 1px solid #1e293b;"\n></iframe>`
+    ? `<div style="position:relative;width:100%;max-width:960px;margin:0 auto;">
+  <iframe
+    title="Live stream player"
+    src="${embedUrl}"
+    style="width:100%;height:min(75vh,640px);min-height:420px;border:0;border-radius:12px;display:block;"
+    allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+    allowfullscreen
+    loading="lazy"
+  ></iframe>
+</div>`
     : '';
 
   const handleCopy = async () => {
@@ -52,7 +41,7 @@ export default function EmbedGenerator({ source }) {
           </div>
           <div className="text-left">
             <p className="text-sm font-semibold">Embed Player</p>
-            <p className="text-xs text-muted-foreground">Get embeddable HTML code</p>
+            <p className="text-xs text-muted-foreground">Responsive code with chat & viewers</p>
           </div>
         </div>
         <ExternalLink className="w-4 h-4 text-muted-foreground" />
@@ -74,27 +63,6 @@ export default function EmbedGenerator({ source }) {
                 </p>
               ) : (
                 <>
-                  <div className="flex gap-3">
-                    <div className="flex-1">
-                      <label className="text-xs text-muted-foreground mb-1.5 block">Width (px)</label>
-                      <input
-                        type="number"
-                        value={width}
-                        onChange={(e) => setWidth(e.target.value)}
-                        className="w-full h-9 px-3 rounded-lg bg-secondary/50 border border-border/50 text-sm font-mono text-foreground"
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <label className="text-xs text-muted-foreground mb-1.5 block">Height (px)</label>
-                      <input
-                        type="number"
-                        value={height}
-                        onChange={(e) => setHeight(e.target.value)}
-                        className="w-full h-9 px-3 rounded-lg bg-secondary/50 border border-border/50 text-sm font-mono text-foreground"
-                      />
-                    </div>
-                  </div>
-
                   <div className="relative">
                     <pre className="bg-secondary/50 border border-border/50 rounded-lg p-4 overflow-x-auto">
                       <code className="text-xs font-mono text-foreground/80 whitespace-pre-wrap break-all">
@@ -114,10 +82,35 @@ export default function EmbedGenerator({ source }) {
                     </Button>
                   </div>
 
-                  <div className="text-xs text-muted-foreground flex items-center gap-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
-                    Embed size: {width} × {height}px
+                  <div className="text-xs text-muted-foreground space-y-1.5">
+                    <p className="flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0" />
+                      Responsive: 100% width, scales on mobile
+                    </p>
+                    <p>Includes live chat and viewer count. Add <span className="font-mono">?chat=0</span> to the URL to hide chat.</p>
                   </div>
+                  {source.type === 'rtmp' && !source.hlsUrl && (
+                    <p className="text-xs text-amber-500/90">
+                      Connect with an HLS URL first, then copy this embed code again.
+                    </p>
+                  )}
+                  {source.type === 'rtmp' && source.hlsUrl && (
+                    <>
+                      <p className="text-xs text-amber-500/90">
+                        Deploy to HTTPS (Cloudflare Pages) before using on a live website — replace
+                        localhost with your production domain in the iframe <span className="font-mono">src</span>.
+                      </p>
+                      <a
+                        href={embedUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-primary hover:underline inline-flex items-center gap-1"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        Preview embed in new tab
+                      </a>
+                    </>
+                  )}
                 </>
               )}
             </div>
