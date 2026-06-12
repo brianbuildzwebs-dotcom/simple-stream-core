@@ -4,6 +4,16 @@ A multi-source video streaming player built with React, Vite, and Supabase.
 
 Watch YouTube videos, upload local files, or connect RTMP streams — with a custom player UI and live chat overlay.
 
+## Production
+
+| | URL |
+|---|---|
+| **Live site** | https://simple-stream-core.brianbuildzwebs.workers.dev |
+| **Embed** | https://simple-stream-core.brianbuildzwebs.workers.dev/embed |
+| **YouTube LIVE API** | https://simple-stream-core.brianbuildzwebs.workers.dev/api/youtube-live |
+
+Deployed via Cloudflare Workers Builds from `main` (`brianbuildzwebs-dotcom/simple-stream-core`).
+
 ## Features
 
 - **YouTube** — embed videos and playlists via URL
