@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && node --input-type=module -e \"import fs from 'node:fs'; fs.copyFileSync('public/.assetsignore','dist/.assetsignore'); try { fs.unlinkSync('dist/_redirects'); } catch {}\"",
+    "build": "vite build && node scripts/postbuild.mjs",
+    "postbuild": "node scripts/cf-deploy-if-ci.mjs",
     "lint": "eslint . --quiet",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc -p ./jsconfig.json",

@@ -130,7 +130,7 @@ Cloudflare now uses **Workers Builds** (Settings → **Builds** on your Worker).
 |---|---|
 | Git branch | `main` |
 | Build command | `npm run build` |
-| Deploy command | `npx wrangler deploy --old-asset-ttl 0` |
+| Deploy command | `npx wrangler deploy` (build also auto-deploys in CI with `--old-asset-ttl 0` to clear stale assets) |
 | Root directory | `/` (blank) |
 
 5. Under **Build variables and secrets** (build-time), add at least:
