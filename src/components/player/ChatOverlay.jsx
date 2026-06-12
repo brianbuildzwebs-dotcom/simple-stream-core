@@ -10,14 +10,9 @@ function formatViewerCount(n) {
   return n.toLocaleString();
 }
 
-function filterMessagesForSource(rows, sourceKey) {
-  return (rows || []).filter(
-    (message) => !message.is_deleted && matchesSourceKey(message.source_key, sourceKey)
-  );
-}
-
 export default function ChatOverlay({
   sourceKey = null,
+  chatEpoch = 0,
   viewerCount = 0,
   isAdmin = false,
   chatEnabled = true,
@@ -32,7 +27,12 @@ export default function ChatOverlay({
   const loadGenerationRef = useRef(0);
 
   useEffect(() => {
-    if (!chatEnabled || !sourceKey) return undefined;
+    if (!chatEnabled || !sourceKey) {
+      setMessages([]);
+      setInputValue('');
+      setIsOpen(false);
+      return undefined;
+    }
 
     const loadGeneration = ++loadGenerationRef.current;
 
@@ -41,7 +41,7 @@ export default function ChatOverlay({
     setIsOpen(false);
 
     const channel = supabase
-      .channel(`chat-messages:${sourceKey}`)
+      .channel(`chat-messages:${chatEpoch}:${sourceKey}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'messages' },
@@ -77,8 +77,9 @@ export default function ChatOverlay({
         .from('messages')
         .select('*')
         .eq('is_deleted', false)
+        .eq('source_key', sourceKey)
         .order('created_at', { ascending: true })
-        .limit(200);
+        .limit(50);
 
       if (loadGeneration !== loadGenerationRef.current) return;
       if (error) {
@@ -87,7 +88,7 @@ export default function ChatOverlay({
         return;
       }
 
-      setMessages(filterMessagesForSource(data, sourceKey).slice(-50));
+      setMessages((data || []).filter((message) => matchesSourceKey(message.source_key, sourceKey)));
     };
 
     loadMessages();
@@ -95,7 +96,7 @@ export default function ChatOverlay({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [chatEnabled, sourceKey]);
+  }, [chatEnabled, sourceKey, chatEpoch]);
 
   useEffect(() => {
     if (isOpen) {
@@ -117,7 +118,6 @@ export default function ChatOverlay({
       source_key: sourceKey,
       user_name: 'You',
       content,
-      // Legacy schemas used `user` + `text` (both NOT NULL) before migrations 00004.
       user: 'You',
       text: content,
     };
@@ -133,7 +133,10 @@ export default function ChatOverlay({
     return null;
   }
 
-  const visibleMessages = filterMessagesForSource(messages, sourceKey);
+  const visibleMessages = messages.filter(
+    (message) => !message.is_deleted && matchesSourceKey(message.source_key, sourceKey)
+  );
+
   const chatBtnClass = embed
     ? 'absolute top-3 right-3 z-20 w-11 h-11 sm:w-10 sm:h-10'
     : 'absolute top-4 right-4 z-20 w-10 h-10';

@@ -39,7 +39,13 @@ function sourceSubtitle(source) {
 
 export default function Home() {
   const [source, setSource] = useState(null);
+  const [chatEpoch, setChatEpoch] = useState(0);
   const [viewerCount, setViewerCount] = useState(0);
+
+  const handleSourceChange = (nextSource) => {
+    setSource(nextSource);
+    setChatEpoch((value) => value + 1);
+  };
   const { settings, loading } = usePlayerSettings();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
@@ -98,6 +104,7 @@ export default function Home() {
           <div className="lg:col-span-2 space-y-4">
             <VideoPlayer
               source={source}
+              chatEpoch={chatEpoch}
               settings={settings}
               isAdmin={isAdmin}
               onViewerCountChange={setViewerCount}
@@ -130,7 +137,10 @@ export default function Home() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setSource(null)}
+                  onClick={() => {
+                    setSource(null);
+                    setChatEpoch((value) => value + 1);
+                  }}
                   className="text-xs text-muted-foreground hover:text-destructive transition-colors flex-shrink-0 ml-4"
                 >
                   Clear
@@ -140,7 +150,7 @@ export default function Home() {
           </div>
 
           <div className="space-y-4">
-            <SourceSelector currentSource={source} onSourceChange={setSource} />
+            <SourceSelector currentSource={source} onSourceChange={handleSourceChange} />
             <EmbedGenerator source={source} />
 
             <div className="bg-card/60 backdrop-blur-xl border border-border/50 rounded-xl p-4">

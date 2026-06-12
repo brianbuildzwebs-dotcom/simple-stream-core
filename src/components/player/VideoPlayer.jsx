@@ -11,6 +11,7 @@ import { Play } from 'lucide-react';
 
 export default function VideoPlayer({
   source,
+  chatEpoch = 0,
   embed = false,
   onViewerCountChange,
   isAdmin = false,
@@ -223,8 +224,9 @@ export default function VideoPlayer({
       )}
       {source && (
         <ChatOverlay
-          key={sourceKey}
+          key={`${chatEpoch}:${sourceKey || 'none'}`}
           sourceKey={sourceKey}
+          chatEpoch={chatEpoch}
           viewerCount={viewerCount}
           isAdmin={isAdmin}
           chatEnabled={settings.chat_enabled !== false}
