@@ -79,12 +79,18 @@ export default function ChatOverlay({
       );
     }
 
-    await supabase.from('messages').insert([
-      {
-        user_name: 'You',
-        content,
-      },
-    ]);
+    const row = {
+      user_name: 'You',
+      content,
+      // Legacy schemas used `user` + `text` (both NOT NULL) before migrations 00004.
+      user: 'You',
+      text: content,
+    };
+
+    const { error } = await supabase.from('messages').insert([row]);
+    if (error) {
+      console.error('Chat send failed:', error.message);
+    }
     setInputValue('');
   };
 
@@ -154,12 +160,16 @@ export default function ChatOverlay({
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     className={`text-sm flex items-start gap-1 group ${
-                      msg.user_name === 'You' ? 'bg-primary/10 rounded-lg px-2 py-1' : ''
+                      (msg.user_name || msg.user) === 'You' ? 'bg-primary/10 rounded-lg px-2 py-1' : ''
                     }`}
                   >
                     <div className="flex-1 min-w-0">
-                      <span className="font-semibold text-primary">{msg.user_name || 'User'}</span>
-                      <span className="text-white/70 ml-1.5 break-words">{msg.content}</span>
+                      <span className="font-semibold text-primary">
+                        {msg.user_name || msg.user || 'User'}
+                      </span>
+                      <span className="text-white/70 ml-1.5 break-words">
+                        {msg.content || msg.text}
+                      </span>
                     </div>
                     {isAdmin && (
                       <button
