@@ -66,6 +66,7 @@ Find these values in your Supabase dashboard under **Settings → API**.
    - `supabase/migrations/20260610000002_complete_partial_setup.sql`
    - `supabase/migrations/20260610000003_fix_messages_columns.sql`
    - `supabase/migrations/20260610000004_align_messages_schema.sql` (fixes chat if sends fail)
+   - `supabase/migrations/20260610000005_messages_source_key.sql` (separate chat per video/stream URL)
 3. Register an account in the app
 4. Promote yourself to admin by running `supabase/seed_admin.sql` (update the email first)
 

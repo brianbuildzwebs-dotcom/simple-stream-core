@@ -5,6 +5,7 @@ import PlayerToolsMenu from './PlayerToolsMenu';
 import RtmpPlayer from './RtmpPlayer';
 import YoutubePlayer from './YoutubePlayer';
 import { useViewerPresence } from '@/hooks/useViewerPresence';
+import { getSourceKey } from '@/lib/source-key';
 import { isYoutubeLiveUrl } from '@/lib/youtube';
 import { Play } from 'lucide-react';
 
@@ -30,6 +31,7 @@ export default function VideoPlayer({
   const viewerCount = useViewerPresence(!!source);
   const isRtmp = source?.type === 'rtmp';
   const isYoutube = source?.type === 'youtube';
+  const sourceKey = getSourceKey(source);
 
   useEffect(() => {
     onViewerCountChange?.(viewerCount);
@@ -221,6 +223,8 @@ export default function VideoPlayer({
       )}
       {source && (
         <ChatOverlay
+          key={sourceKey}
+          sourceKey={sourceKey}
           viewerCount={viewerCount}
           isAdmin={isAdmin}
           chatEnabled={settings.chat_enabled !== false}

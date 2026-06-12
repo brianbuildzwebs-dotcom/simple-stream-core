@@ -10,6 +10,7 @@ function formatViewerCount(n) {
 }
 
 export default function ChatOverlay({
+  sourceKey = null,
   viewerCount = 0,
   isAdmin = false,
   chatEnabled = true,
@@ -23,17 +24,32 @@ export default function ChatOverlay({
   const chatEndRef = useRef(null);
 
   useEffect(() => {
-    if (!chatEnabled) return undefined;
+    if (!chatEnabled || !sourceKey) return undefined;
+
+    setMessages([]);
+    setInputValue('');
+
+    const belongsToSource = (row) => row?.source_key === sourceKey;
 
     const channel = supabase
-      .channel('chat-messages')
+      .channel(`chat-messages:${sourceKey}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'messages' },
+        {
+          event: '*',
+          schema: 'public',
+          table: 'messages',
+          filter: `source_key=eq.${sourceKey}`,
+        },
         (payload) => {
           if (payload.eventType === 'INSERT') {
+            if (!belongsToSource(payload.new)) return;
             setMessages((prev) => [...prev.slice(-49), payload.new]);
           } else if (payload.eventType === 'UPDATE') {
+            if (!belongsToSource(payload.new)) {
+              setMessages((prev) => prev.filter((m) => m.id !== payload.new.id));
+              return;
+            }
             setMessages((prev) =>
               payload.new.is_deleted
                 ? prev.filter((m) => m.id !== payload.new.id)
@@ -51,6 +67,7 @@ export default function ChatOverlay({
         .from('messages')
         .select('*')
         .eq('is_deleted', false)
+        .eq('source_key', sourceKey)
         .order('created_at', { ascending: true })
         .limit(50);
       if (data) setMessages(data);
@@ -61,7 +78,7 @@ export default function ChatOverlay({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [chatEnabled]);
+  }, [chatEnabled, sourceKey]);
 
   useEffect(() => {
     if (isOpen) {
@@ -79,7 +96,10 @@ export default function ChatOverlay({
       );
     }
 
+    if (!sourceKey) return;
+
     const row = {
+      source_key: sourceKey,
       user_name: 'You',
       content,
       // Legacy schemas used `user` + `text` (both NOT NULL) before migrations 00004.
@@ -218,8 +238,11 @@ export default function ChatOverlay({
         >
           <ChevronUp className="w-3.5 h-3.5 flex-shrink-0" />
           <span className="truncate">
-            Latest: <span className="text-white/60">{visibleMessages.at(-1)?.user_name}:</span>{' '}
-            {visibleMessages.at(-1)?.content}
+            Latest:{' '}
+            <span className="text-white/60">
+              {visibleMessages.at(-1)?.user_name || visibleMessages.at(-1)?.user}:
+            </span>{' '}
+            {visibleMessages.at(-1)?.content || visibleMessages.at(-1)?.text}
           </span>
         </button>
       )}
