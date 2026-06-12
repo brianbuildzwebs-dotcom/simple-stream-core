@@ -3,10 +3,17 @@ import { MessageCircle, Send, X, Trash2, ChevronUp, Users } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '@/lib/supabase';
+import { matchesSourceKey } from '@/lib/source-key';
 
 function formatViewerCount(n) {
   if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}K`;
   return n.toLocaleString();
+}
+
+function filterMessagesForSource(rows, sourceKey) {
+  return (rows || []).filter(
+    (message) => !message.is_deleted && matchesSourceKey(message.source_key, sourceKey)
+  );
 }
 
 export default function ChatOverlay({
@@ -22,55 +29,65 @@ export default function ChatOverlay({
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const chatEndRef = useRef(null);
+  const loadGenerationRef = useRef(0);
 
   useEffect(() => {
     if (!chatEnabled || !sourceKey) return undefined;
 
+    const loadGeneration = ++loadGenerationRef.current;
+
     setMessages([]);
     setInputValue('');
-
-    const belongsToSource = (row) => row?.source_key === sourceKey;
+    setIsOpen(false);
 
     const channel = supabase
       .channel(`chat-messages:${sourceKey}`)
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'messages',
-          filter: `source_key=eq.${sourceKey}`,
-        },
+        { event: '*', schema: 'public', table: 'messages' },
         (payload) => {
           if (payload.eventType === 'INSERT') {
-            if (!belongsToSource(payload.new)) return;
+            if (!matchesSourceKey(payload.new?.source_key, sourceKey)) return;
             setMessages((prev) => [...prev.slice(-49), payload.new]);
-          } else if (payload.eventType === 'UPDATE') {
-            if (!belongsToSource(payload.new)) {
-              setMessages((prev) => prev.filter((m) => m.id !== payload.new.id));
-              return;
-            }
-            setMessages((prev) =>
-              payload.new.is_deleted
-                ? prev.filter((m) => m.id !== payload.new.id)
-                : prev.map((m) => (m.id === payload.new.id ? payload.new : m))
-            );
-          } else if (payload.eventType === 'DELETE') {
-            setMessages((prev) => prev.filter((m) => m.id !== payload.old.id));
+            return;
+          }
+
+          if (payload.eventType === 'UPDATE') {
+            setMessages((prev) => {
+              const without = prev.filter((message) => message.id !== payload.new.id);
+              if (payload.new.is_deleted || !matchesSourceKey(payload.new?.source_key, sourceKey)) {
+                return without;
+              }
+              return [...without, payload.new].sort(
+                (a, b) => new Date(a.created_at) - new Date(b.created_at)
+              );
+            });
+            return;
+          }
+
+          if (payload.eventType === 'DELETE') {
+            setMessages((prev) => prev.filter((message) => message.id !== payload.old.id));
           }
         }
       )
       .subscribe();
 
     const loadMessages = async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('messages')
         .select('*')
         .eq('is_deleted', false)
-        .eq('source_key', sourceKey)
         .order('created_at', { ascending: true })
-        .limit(50);
-      if (data) setMessages(data);
+        .limit(200);
+
+      if (loadGeneration !== loadGenerationRef.current) return;
+      if (error) {
+        console.error('Chat load failed:', error.message);
+        setMessages([]);
+        return;
+      }
+
+      setMessages(filterMessagesForSource(data, sourceKey).slice(-50));
     };
 
     loadMessages();
@@ -87,7 +104,7 @@ export default function ChatOverlay({
   }, [messages, isOpen]);
 
   const sendMessage = async () => {
-    if (!inputValue.trim()) return;
+    if (!inputValue.trim() || !sourceKey) return;
 
     let content = inputValue.trim();
     if (profanityFilter) {
@@ -95,8 +112,6 @@ export default function ChatOverlay({
         /^(damn|hell|shit|fuck|ass|bitch)$/i.test(word) ? '***' : word
       );
     }
-
-    if (!sourceKey) return;
 
     const row = {
       source_key: sourceKey,
@@ -118,7 +133,7 @@ export default function ChatOverlay({
     return null;
   }
 
-  const visibleMessages = messages.filter((m) => !m.is_deleted);
+  const visibleMessages = filterMessagesForSource(messages, sourceKey);
   const chatBtnClass = embed
     ? 'absolute top-3 right-3 z-20 w-11 h-11 sm:w-10 sm:h-10'
     : 'absolute top-4 right-4 z-20 w-10 h-10';
