@@ -1,13 +1,21 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { MessageCircle, Send, X, Trash2, ChevronUp, Users } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '@/lib/supabase';
 import { matchesSourceKey } from '@/lib/source-key';
 
+const ACTIVE_CHAT_SOURCE_KEY = 'simple-streams-active-chat-source';
+
 function formatViewerCount(n) {
   if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}K`;
   return n.toLocaleString();
+}
+
+function scopeMessages(rows, sourceKey) {
+  return (rows || []).filter(
+    (message) => !message.is_deleted && matchesSourceKey(message.source_key, sourceKey)
+  );
 }
 
 export default function ChatOverlay({
@@ -25,39 +33,83 @@ export default function ChatOverlay({
   const [inputValue, setInputValue] = useState('');
   const chatEndRef = useRef(null);
   const loadGenerationRef = useRef(0);
+  const activeSourceRef = useRef(sourceKey);
+
+  const applyMessages = useCallback(
+    (updater) => {
+      const currentSource = activeSourceRef.current;
+      if (!currentSource) {
+        setMessages([]);
+        return;
+      }
+
+      setMessages((prev) => {
+        const scopedPrev = scopeMessages(prev, currentSource);
+        const next = typeof updater === 'function' ? updater(scopedPrev) : updater;
+        return scopeMessages(next, currentSource).slice(-50);
+      });
+    },
+    []
+  );
 
   useEffect(() => {
+    activeSourceRef.current = sourceKey;
+
     if (!chatEnabled || !sourceKey) {
       setMessages([]);
       setInputValue('');
       setIsOpen(false);
+      sessionStorage.removeItem(ACTIVE_CHAT_SOURCE_KEY);
       return undefined;
     }
 
     const loadGeneration = ++loadGenerationRef.current;
+    const sessionStartedAt = Date.now();
 
+    sessionStorage.setItem(ACTIVE_CHAT_SOURCE_KEY, sourceKey);
     setMessages([]);
     setInputValue('');
     setIsOpen(false);
 
+    for (const existing of supabase.getChannels()) {
+      const topic = existing.topic || '';
+      if (topic.includes(':chat-')) {
+        supabase.removeChannel(existing);
+      }
+    }
+
+    const isActiveEvent = (row) => {
+      if (!row) return false;
+      if (sessionStorage.getItem(ACTIVE_CHAT_SOURCE_KEY) !== sourceKey) return false;
+      if (activeSourceRef.current !== sourceKey) return false;
+      if (!matchesSourceKey(row.source_key, sourceKey)) return false;
+      if (row.created_at) {
+        const createdAt = new Date(row.created_at).getTime();
+        if (Number.isFinite(createdAt) && createdAt < sessionStartedAt - 2000) {
+          return false;
+        }
+      }
+      return true;
+    };
+
     const channel = supabase
-      .channel(`chat-messages:${chatEpoch}:${sourceKey}`)
+      .channel(`chat-${chatEpoch}-${encodeURIComponent(sourceKey)}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'messages' },
         (payload) => {
+          if (sessionStorage.getItem(ACTIVE_CHAT_SOURCE_KEY) !== sourceKey) return;
+
           if (payload.eventType === 'INSERT') {
-            if (!matchesSourceKey(payload.new?.source_key, sourceKey)) return;
-            setMessages((prev) => [...prev.slice(-49), payload.new]);
+            if (!isActiveEvent(payload.new)) return;
+            applyMessages((prev) => [...prev, payload.new]);
             return;
           }
 
           if (payload.eventType === 'UPDATE') {
-            setMessages((prev) => {
+            applyMessages((prev) => {
               const without = prev.filter((message) => message.id !== payload.new.id);
-              if (payload.new.is_deleted || !matchesSourceKey(payload.new?.source_key, sourceKey)) {
-                return without;
-              }
+              if (payload.new.is_deleted || !isActiveEvent(payload.new)) return without;
               return [...without, payload.new].sort(
                 (a, b) => new Date(a.created_at) - new Date(b.created_at)
               );
@@ -66,7 +118,7 @@ export default function ChatOverlay({
           }
 
           if (payload.eventType === 'DELETE') {
-            setMessages((prev) => prev.filter((message) => message.id !== payload.old.id));
+            applyMessages((prev) => prev.filter((message) => message.id !== payload.old.id));
           }
         }
       )
@@ -82,21 +134,25 @@ export default function ChatOverlay({
         .limit(50);
 
       if (loadGeneration !== loadGenerationRef.current) return;
+      if (sessionStorage.getItem(ACTIVE_CHAT_SOURCE_KEY) !== sourceKey) return;
       if (error) {
         console.error('Chat load failed:', error.message);
         setMessages([]);
         return;
       }
 
-      setMessages((data || []).filter((message) => matchesSourceKey(message.source_key, sourceKey)));
+      applyMessages(scopeMessages(data, sourceKey));
     };
 
     loadMessages();
 
     return () => {
       supabase.removeChannel(channel);
+      if (sessionStorage.getItem(ACTIVE_CHAT_SOURCE_KEY) === sourceKey) {
+        sessionStorage.removeItem(ACTIVE_CHAT_SOURCE_KEY);
+      }
     };
-  }, [chatEnabled, sourceKey, chatEpoch]);
+  }, [chatEnabled, sourceKey, chatEpoch, applyMessages]);
 
   useEffect(() => {
     if (isOpen) {
@@ -133,9 +189,7 @@ export default function ChatOverlay({
     return null;
   }
 
-  const visibleMessages = messages.filter(
-    (message) => !message.is_deleted && matchesSourceKey(message.source_key, sourceKey)
-  );
+  const visibleMessages = scopeMessages(messages, sourceKey);
 
   const chatBtnClass = embed
     ? 'absolute top-3 right-3 z-20 w-11 h-11 sm:w-10 sm:h-10'
