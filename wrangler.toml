@@ -1,6 +1,6 @@
 name = "simple-stream-core"
 compatibility_date = "2024-09-23"
-main = "./dist/worker/index.js"
+main = "./worker/index.mjs"
 workers_dev = true
 
 [assets]

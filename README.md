@@ -137,7 +137,6 @@ Cloudflare now uses **Workers Builds** (Settings → **Builds** on your Worker).
 
 | Variable | Required | Notes |
 |---|---|---|
-| `NODE_VERSION` | Yes | `22` (wrangler 4.x requires Node 22+) |
 | `VITE_SUPABASE_URL` | Yes | From Supabase → Settings → API |
 | `VITE_SUPABASE_ANON_KEY` | Yes | Anon/public key |
 | `VITE_RTMP_STREAM_KEY` | Optional | Default RTMP key in the player |
@@ -148,7 +147,7 @@ Cloudflare now uses **Workers Builds** (Settings → **Builds** on your Worker).
 
 6. Save and **Retry deployment** (or push to `main`).
 
-> **Build failed?** Open **Deployments** → failed build → **View build log**. Common fixes: Worker name mismatch, missing `VITE_SUPABASE_*` build variables, or Node version — set **NODE_VERSION** = `22` under build variables (wrangler 4.x requires Node 22+).
+> **Build failed?** Open **Deployments** → failed build → **View build log**. Common fixes: Worker name mismatch, missing `VITE_SUPABASE_*` build variables. If `NODE_VERSION` is set to `20`, that is fine — delete it only if you want Cloudflare's default (22).
 
 #### Option B — CLI deploy
 
