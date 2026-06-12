@@ -18,16 +18,18 @@ export async function onRequest(context) {
   const videoId = url.searchParams.get('videoId');
   const playlistId = url.searchParams.get('playlistId');
 
+  const innertubeOptions = { apiKey: context.env?.YOUTUBE_INNERTUBE_KEY };
+
   try {
     if (playlistId) {
-      const items = await resolvePlaylistBroadcasts(playlistId);
+      const items = await resolvePlaylistBroadcasts(playlistId, 10, innertubeOptions);
       const liveNow = items.filter((item) => item.isLiveNow).map((item) => item.id);
       const broadcasts = items.filter((item) => item.isBroadcast).map((item) => item.id);
       return Response.json({ liveNow, broadcasts, items }, { headers: CORS });
     }
 
     if (videoId) {
-      const status = await resolveVideoBroadcast(videoId);
+      const status = await resolveVideoBroadcast(videoId, innertubeOptions);
       return Response.json({ videoId, ...status }, { headers: CORS });
     }
 

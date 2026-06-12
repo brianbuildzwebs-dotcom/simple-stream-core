@@ -1,0 +1,2 @@
+# Copy to .dev.vars for `npx wrangler dev` (never commit .dev.vars)
+YOUTUBE_INNERTUBE_KEY=your-innertube-key

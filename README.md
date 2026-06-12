@@ -157,7 +157,13 @@ Cloudflare now uses **Workers Builds** (Settings → **Builds** on your Worker).
 | `VITE_RTMP_CUSTOMER_CODE` | Optional | Builds HLS URL from stream key |
 | `VITE_YOUTUBE_API_KEY` | Optional | Extra LIVE detection via YouTube Data API |
 
-6. Save and **Retry deployment** (or push to `main`).
+6. Under **Settings → Variables & Secrets** (runtime, not build), add:
+
+| Variable | Required | Notes |
+|---|---|---|
+| `YOUTUBE_INNERTUBE_KEY` | Optional | Powers `/api/youtube-live` LIVE badges. Copy the `key=` value from a `youtubei/v1/player` request on youtube.com (DevTools → Network). **Do not commit this to git.** |
+
+7. Save and **Retry deployment** (or push to `main`).
 
 > **Build failed?** Open **Deployments** → failed build → **View build log**. Common fixes: Worker name mismatch, missing `VITE_SUPABASE_*` build variables. If `NODE_VERSION` is set to `20`, that is fine — delete it only if you want Cloudflare's default (22).
 
