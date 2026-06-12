@@ -119,17 +119,21 @@ The app is set up for [Cloudflare Pages](https://pages.cloudflare.com/) with a P
 
 #### Option A — Git deploy (recommended)
 
+Cloudflare now uses **Workers Builds** (Settings → **Builds** on your Worker). "Connect your Worker to a Git repository" is the right place.
+
 1. Push this repo to GitHub
-2. Cloudflare dashboard → **Workers & Pages** → **Create** → **Pages** → **Connect to Git**
-3. Select the repo and use these build settings:
+2. Cloudflare dashboard → **Workers & Pages** → **Create application** → **Import a repository** (or open your existing Worker → **Settings** → **Builds** → **Connect**)
+3. Select **`simple-stream-core`** and confirm the Worker name matches `wrangler.toml` (`simple-stream-core`)
+4. Use these build settings:
 
 | Setting | Value |
 |---|---|
+| Git branch | `main` |
 | Build command | `npm run build` |
-| Build output directory | `dist` |
-| Root directory | `/` |
+| Deploy command | `npx wrangler deploy` |
+| Root directory | `/` (blank) |
 
-4. Under **Settings → Environment variables**, add (at least for **Production**):
+5. Under **Build variables and secrets** (build-time), add at least:
 
 | Variable | Required | Notes |
 |---|---|---|
@@ -141,21 +145,23 @@ The app is set up for [Cloudflare Pages](https://pages.cloudflare.com/) with a P
 | `VITE_RTMP_CUSTOMER_CODE` | Optional | Builds HLS URL from stream key |
 | `VITE_YOUTUBE_API_KEY` | Optional | Extra LIVE detection via YouTube Data API |
 
-5. Deploy. Every push to `main` rebuilds automatically.
+6. Save and **Retry deployment** (or push to `main`).
+
+> **Build failed?** Open **Deployments** → failed build → **View build log**. Common fixes: Worker name mismatch, missing `VITE_SUPABASE_*` build variables, or Node version — set **NODE_VERSION** = `20` under build variables.
 
 #### Option B — CLI deploy
 
 ```bash
 npm install
 npx wrangler login
-npm run pages:deploy
+npm run deploy
 ```
 
 Preview the production build locally (static + API function):
 
 ```bash
 npm run build
-npm run pages:dev
+npx wrangler dev
 ```
 
 #### After deploy
@@ -189,8 +195,8 @@ src/
 | `npm run preview` | Preview production build |
 | `npm run lint` | Run ESLint |
 | `npm run typecheck` | Run TypeScript check |
-| `npm run pages:deploy` | Build and deploy to Cloudflare Pages |
-| `npm run pages:dev` | Preview `dist` with Pages Functions locally |
+| `npm run deploy` | Build and deploy to Cloudflare Workers |
+| `npm run pages:deploy` | Alias for `npm run deploy` |
 
 ## License
 
