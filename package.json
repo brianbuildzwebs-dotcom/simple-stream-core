@@ -6,13 +6,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && node --input-type=module -e \"import fs from 'node:fs'; fs.copyFileSync('public/.assetsignore','dist/.assetsignore')\"",
+    "build": "vite build && node --input-type=module -e \"import fs from 'node:fs'; fs.copyFileSync('public/.assetsignore','dist/.assetsignore'); try { fs.unlinkSync('dist/_redirects'); } catch {}\"",
     "lint": "eslint . --quiet",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc -p ./jsconfig.json",
     "preview": "vite preview",
-    "deploy": "npm run build && wrangler deploy",
-    "pages:deploy": "npm run build && wrangler deploy",
+    "deploy": "npm run build && wrangler deploy --old-asset-ttl 0",
+    "pages:deploy": "npm run build && wrangler deploy --old-asset-ttl 0",
     "pages:dev": "wrangler pages dev dist --compatibility-date=2024-09-23"
   },
   "dependencies": {
