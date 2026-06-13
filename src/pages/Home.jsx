@@ -11,7 +11,7 @@ import { useAuth } from '@/lib/AuthContext';
 
 const FEATURES = [
   { label: 'YouTube Playback', desc: 'Paste any YouTube URL' },
-  { label: 'RTMP Streaming', desc: 'Cloudflare Stream or custom RTMPS feeds' },
+  { label: 'RTMPS Streaming', desc: 'Connect any RTMPS ingest with HLS playback' },
   { label: 'File Upload', desc: 'Play local video files' },
   { label: 'Live Chat', desc: 'Real-time chat overlay' },
   { label: 'Embed Code', desc: 'Share via iframe' },
@@ -27,7 +27,7 @@ function sourceTitle(source) {
   if (!source) return '';
   if (source.type === 'youtube') return source.isLive ? 'YouTube Live' : 'YouTube Video';
   if (source.type === 'rtmp') {
-    return source.label || (source.provider === 'custom' ? 'Custom RTMPS' : 'RTMP Live Stream');
+    return source.label || 'RTMP Live Stream';
   }
   return source.fileName || 'Local File';
 }
@@ -36,10 +36,7 @@ function sourceSubtitle(source) {
   if (!source) return '';
   if (source.type === 'youtube') return source.url;
   if (source.type === 'rtmp') {
-    if (source.provider === 'custom') {
-      return source.label || 'Custom RTMPS feed';
-    }
-    return 'Cloudflare Stream';
+    return 'RTMPS live feed';
   }
   return 'Local File';
 }

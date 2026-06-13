@@ -18,7 +18,7 @@ export function buildEmbedUrl(source) {
   }
 
   if (source.type === 'rtmp') {
-    if (source.provider === 'custom' && source.serverUrl && source.streamKey && source.hlsUrl) {
+    if (source.serverUrl && source.streamKey && source.hlsUrl) {
       let url = `${base}/embed?source=rtmp&provider=custom`;
       url += `&server=${encodeURIComponent(source.serverUrl)}`;
       url += `&key=${encodeURIComponent(source.streamKey)}`;
