@@ -6,7 +6,7 @@ import RtmpPlayer from './RtmpPlayer';
 import YoutubePlayer from './YoutubePlayer';
 import { useViewerPresence } from '@/hooks/useViewerPresence';
 import { getSourceKey } from '@/lib/source-key';
-import { isYoutubeLiveUrl } from '@/lib/youtube';
+
 import { Play } from 'lucide-react';
 
 export default function VideoPlayer({
@@ -28,6 +28,7 @@ export default function VideoPlayer({
   const [controlsVisible, setControlsVisible] = useState(true);
   const [videoMountGen, setVideoMountGen] = useState(0);
   const [youtubeIsLive, setYoutubeIsLive] = useState(false);
+  const [rtmpIsLive, setRtmpIsLive] = useState(false);
   const hideTimeout = useRef(null);
   const viewerCount = useViewerPresence(!!source);
   const isRtmp = source?.type === 'rtmp';
@@ -60,7 +61,8 @@ export default function VideoPlayer({
     setCurrentTime(0);
     setDuration(0);
     setIsPlaying(false);
-    setYoutubeIsLive(source?.isLive || isYoutubeLiveUrl(source?.url));
+    setYoutubeIsLive(false);
+    setRtmpIsLive(false);
     // Live streams start muted for browser autoplay — sync UI with actual state
     if (source?.type === 'rtmp') {
       setIsMuted(true);
@@ -189,6 +191,7 @@ export default function VideoPlayer({
           viewerCount={viewerCount}
           videoRef={videoRef}
           onPlayingChange={handleRtmpPlayingChange}
+          onLiveChange={setRtmpIsLive}
           onVideoReady={handleRtmpVideoReady}
         />
       );
@@ -232,7 +235,7 @@ export default function VideoPlayer({
           chatEnabled={settings.chat_enabled !== false}
           profanityFilter={settings.profanity_filter === true}
           embed={embed}
-          hideViewerBadge={isRtmp || (isYoutube && youtubeIsLive)}
+          hideViewerBadge={(isRtmp && rtmpIsLive) || (isYoutube && youtubeIsLive)}
         />
       )}
       {source && !isYoutube && (
@@ -249,7 +252,7 @@ export default function VideoPlayer({
           duration={duration}
           onSeek={handleSeek}
           visible={controlsVisible}
-          live={isRtmp}
+          live={isRtmp && rtmpIsLive}
         />
       )}
     </div>

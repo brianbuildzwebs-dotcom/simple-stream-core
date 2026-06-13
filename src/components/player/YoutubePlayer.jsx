@@ -4,7 +4,6 @@ import {
   buildYoutubePlayerOptions,
   fetchPlaylistLiveStatus,
   getPlayerVideoId,
-  isYoutubeLiveUrl,
   loadYoutubeIframeApi,
   resolveYoutubeLiveStatus,
 } from '@/lib/youtube';
@@ -25,7 +24,7 @@ export default function YoutubePlayer({
   const pollRef = useRef(null);
   const liveRequestRef = useRef(0);
 
-  const [isLive, setIsLive] = useState(() => source.isLive || isYoutubeLiveUrl(source.url));
+  const [isLive, setIsLive] = useState(false);
   const [playerSize, setPlayerSize] = useState(null);
 
   const playerId = useMemo(
@@ -40,10 +39,9 @@ export default function YoutubePlayer({
   );
 
   useEffect(() => {
-    const fromUrl = source.isLive || isYoutubeLiveUrl(source.url);
-    setIsLive(fromUrl);
-    onLiveChange?.(fromUrl);
-  }, [source.isLive, source.url, onLiveChange]);
+    setIsLive(false);
+    onLiveChange?.(false);
+  }, [source.videoId, source.playlistId, source.url, onLiveChange]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -77,10 +75,7 @@ export default function YoutubePlayer({
       playlistLiveStatusRef.current = status;
       if (playerRef.current) {
         const videoId = getPlayerVideoId(playerRef.current);
-        if (
-          videoId &&
-          (status.liveNow.has(videoId) || status.broadcasts.has(videoId))
-        ) {
+        if (videoId && status.liveNow.has(videoId)) {
           setIsLive(true);
           onLiveChange?.(true);
         }
@@ -98,13 +93,10 @@ export default function YoutubePlayer({
     let cancelled = false;
     const liveCheckTimers = [];
 
-    const urlIsLive = source.isLive || isYoutubeLiveUrl(source.url);
-
     const applyLive = (live) => {
       if (cancelled) return;
-      const nextLive = urlIsLive || live;
-      setIsLive(nextLive);
-      onLiveChange?.(nextLive);
+      setIsLive(live);
+      onLiveChange?.(live);
     };
 
     const updateLive = async (player) => {

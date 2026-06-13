@@ -252,11 +252,7 @@ export async function fetchLiveVideoIdsInPlaylist(playlistId) {
 }
 
 export function isYoutubeSourceLive(source, player, durationSamples = []) {
-  return (
-    isYoutubeLiveUrl(source?.url) ||
-    source?.isLive === true ||
-    isYoutubePlayerLive(player, durationSamples)
-  );
+  return isYoutubePlayerLive(player, durationSamples);
 }
 
 export async function resolveYoutubeLiveStatus(
@@ -265,10 +261,6 @@ export async function resolveYoutubeLiveStatus(
   durationSamples = [],
   playlistLiveStatus = null
 ) {
-  if (isYoutubeLiveUrl(source?.url) || source?.isLive === true) {
-    return true;
-  }
-
   const videoId = getPlayerVideoId(player);
 
   if (videoId && playlistLiveStatus?.liveNow?.has(videoId)) {
@@ -286,11 +278,8 @@ export async function resolveYoutubeLiveStatus(
     const proxyResult = await fetchYoutubeBroadcastViaProxy(videoId);
     if (proxyResult?.isLiveNow) return true;
 
-    // Match /live/VIDEO_ID behavior for ended live replays in playlists.
-    if (proxyResult?.isBroadcast) return true;
-    if (playlistLiveStatus?.broadcasts?.has(videoId)) return true;
-
     if (apiResult === false) return false;
+    if (proxyResult && !proxyResult.isLiveNow) return false;
   }
 
   return false;

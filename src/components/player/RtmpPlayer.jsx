@@ -13,11 +13,21 @@ const STATUS = {
 
 const WAITING_MSG = 'Waiting for live stream…';
 
+function readHlsLiveFlag(hls) {
+  const level = hls.levels?.[hls.currentLevel] ?? hls.levels?.[0];
+  return level?.details?.live === true;
+}
+
+function readNativeHlsLive(video) {
+  return !Number.isFinite(video.duration) || video.duration === Infinity;
+}
+
 function RtmpPlayer({
   hlsUrl,
   embed = false,
   viewerCount = 0,
   onPlayingChange,
+  onLiveChange,
   onVideoReady,
   videoRef: externalVideoRef,
 }) {
@@ -33,9 +43,11 @@ function RtmpPlayer({
   const hlsRef = useRef(null);
   const activeUrlRef = useRef('');
   const onPlayingChangeRef = useRef(onPlayingChange);
+  const onLiveChangeRef = useRef(onLiveChange);
   const inIframe = typeof window !== 'undefined' && window.self !== window.top;
   const deferUntilClick = embed && inIframe;
 
+  const [isStreamLive, setIsStreamLive] = useState(false);
   const [status, setStatus] = useState(() => {
     if (!hlsUrl) return STATUS.NO_URL;
     if (deferUntilClick) return STATUS.WAITING;
@@ -45,6 +57,12 @@ function RtmpPlayer({
   const [awaitingClick, setAwaitingClick] = useState(deferUntilClick);
 
   onPlayingChangeRef.current = onPlayingChange;
+  onLiveChangeRef.current = onLiveChange;
+
+  const updateStreamLive = useCallback((live) => {
+    setIsStreamLive(live);
+    onLiveChangeRef.current?.(live);
+  }, []);
 
   const markLive = useCallback(() => {
     setAwaitingClick(false);
@@ -97,7 +115,15 @@ function RtmpPlayer({
         hlsRef.current = hls;
         hls.loadSource(url);
         hls.attachMedia(video);
-        hls.on(Hls.Events.MANIFEST_PARSED, tryPlay);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          updateStreamLive(readHlsLiveFlag(hls));
+          tryPlay();
+        });
+        hls.on(Hls.Events.LEVEL_UPDATED, (_event, { details }) => {
+          if (typeof details?.live === 'boolean') {
+            updateStreamLive(details.live);
+          }
+        });
         hls.on(Hls.Events.FRAG_BUFFERED, () => {
           if (video.readyState >= 2 && !video.paused) markLive();
         });
@@ -120,7 +146,17 @@ function RtmpPlayer({
 
       if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = url;
-        video.addEventListener('loadedmetadata', tryPlay, { once: true });
+        video.addEventListener(
+          'loadedmetadata',
+          () => {
+            updateStreamLive(readNativeHlsLive(video));
+            tryPlay();
+          },
+          { once: true }
+        );
+        video.addEventListener('durationchange', () => {
+          updateStreamLive(readNativeHlsLive(video));
+        });
         video.addEventListener('error', () => {
           setStatus(STATUS.ERROR);
           setErrorMsg('Unable to load stream.');
@@ -131,7 +167,7 @@ function RtmpPlayer({
       setStatus(STATUS.ERROR);
       setErrorMsg('HLS playback is not supported in this browser.');
     },
-    [destroyHls, markLive]
+    [destroyHls, markLive, updateStreamLive]
   );
 
   useLayoutEffect(() => {
@@ -139,6 +175,7 @@ function RtmpPlayer({
     if (!video || !hlsUrl) {
       activeUrlRef.current = '';
       destroyHls();
+      updateStreamLive(false);
       if (!hlsUrl) setStatus(STATUS.NO_URL);
       return undefined;
     }
@@ -166,7 +203,7 @@ function RtmpPlayer({
       destroyHls();
       activeUrlRef.current = '';
     };
-  }, [hlsUrl, deferUntilClick, attachHls, destroyHls]);
+  }, [hlsUrl, deferUntilClick, attachHls, destroyHls, updateStreamLive]);
 
   const handleStartClick = () => {
     const video = internalVideoRef.current;
@@ -242,7 +279,9 @@ function RtmpPlayer({
           </div>
         </div>
       )}
-      {status === STATUS.LIVE && <LiveBadge viewerCount={viewerCount} />}
+      {status === STATUS.LIVE && isStreamLive && (
+        <LiveBadge viewerCount={viewerCount} />
+      )}
     </div>
   );
 }
