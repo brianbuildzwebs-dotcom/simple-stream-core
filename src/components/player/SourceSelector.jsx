@@ -5,29 +5,10 @@ import { Input } from '@/components/ui/input';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   buildCustomRtmpSource,
-  RTMP_SERVER_URL,
-  RTMP_STREAM_KEY,
-  RTMP_HLS_URL,
-  resolveHlsUrl,
   validateRtmpServerUrl,
   validateCustomStreamKey,
   validateGenericHlsUrl,
 } from '@/lib/rtmp';
-
-function resolveRtmpPlayback(hlsInput, streamKey) {
-  const trimmed = hlsInput?.trim() || '';
-  if (trimmed) {
-    const check = validateGenericHlsUrl(trimmed);
-    return check.valid ? { valid: true, url: check.url, error: check.error } : check;
-  }
-  const resolved = resolveHlsUrl(streamKey, '', null);
-  if (resolved) return { valid: true, url: resolved, error: '' };
-  return {
-    valid: false,
-    error: 'HLS playback URL is required — browsers cannot play raw RTMPS.',
-    url: '',
-  };
-}
 import { isYoutubeLiveUrl } from '@/lib/youtube';
 
 const tabs = [
@@ -40,39 +21,28 @@ export default function SourceSelector({ onSourceChange, currentSource }) {
   const [activeTab, setActiveTab] = useState('youtube');
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [youtubeError, setYoutubeError] = useState('');
-  const [rtmpServerUrl, setRtmpServerUrl] = useState(RTMP_SERVER_URL);
-  const [rtmpStreamKey, setRtmpStreamKey] = useState(RTMP_STREAM_KEY);
-  const [rtmpHlsUrl, setRtmpHlsUrl] = useState(RTMP_HLS_URL);
+  const [rtmpServerUrl, setRtmpServerUrl] = useState('');
+  const [rtmpStreamKey, setRtmpStreamKey] = useState('');
+  const [rtmpHlsUrl, setRtmpHlsUrl] = useState('');
   const [rtmpLabel, setRtmpLabel] = useState('');
   const [rtmpServerError, setRtmpServerError] = useState('');
   const [rtmpKeyError, setRtmpKeyError] = useState('');
   const [rtmpHlsError, setRtmpHlsError] = useState('');
   const fileInputRef = useRef(null);
-  const autoConnected = useRef(false);
 
   useEffect(() => {
-    if (currentSource?.type !== 'rtmp') return;
-    if (currentSource.serverUrl) setRtmpServerUrl(currentSource.serverUrl);
-    if (currentSource.streamKey) setRtmpStreamKey(currentSource.streamKey);
-    if (currentSource.hlsUrl) setRtmpHlsUrl(currentSource.hlsUrl);
-    if (currentSource.label) setRtmpLabel(currentSource.label);
-  }, [currentSource]);
-
-  useEffect(() => {
-    if (autoConnected.current || currentSource) return;
-
-    const serverCheck = validateRtmpServerUrl(rtmpServerUrl);
-    const keyCheck = validateCustomStreamKey(rtmpStreamKey);
-    const hlsCheck = resolveRtmpPlayback(rtmpHlsUrl, keyCheck.key);
-
-    if (serverCheck.valid && keyCheck.valid && hlsCheck.valid) {
-      autoConnected.current = true;
-      onSourceChange(
-        buildCustomRtmpSource(serverCheck.url, keyCheck.key, hlsCheck.url, rtmpLabel)
-      );
-      setActiveTab('rtmp');
+    if (!currentSource || currentSource.type !== 'rtmp') {
+      setRtmpServerUrl('');
+      setRtmpStreamKey('');
+      setRtmpHlsUrl('');
+      setRtmpLabel('');
+      return;
     }
-  }, [currentSource, onSourceChange, rtmpServerUrl, rtmpStreamKey, rtmpHlsUrl, rtmpLabel]);
+    setRtmpServerUrl(currentSource.serverUrl || '');
+    setRtmpStreamKey(currentSource.streamKey || '');
+    setRtmpHlsUrl(currentSource.hlsUrl || '');
+    setRtmpLabel(currentSource.label || '');
+  }, [currentSource]);
 
   const extractYoutubeSource = (url) => {
     const playlistMatch = url.match(/[?&]list=([a-zA-Z0-9_-]+)/);
@@ -126,13 +96,12 @@ export default function SourceSelector({ onSourceChange, currentSource }) {
       return;
     }
 
-    const hlsCheck = resolveRtmpPlayback(rtmpHlsUrl, keyCheck.key);
+    const hlsCheck = validateGenericHlsUrl(rtmpHlsUrl);
     if (!hlsCheck.valid) {
       setRtmpHlsError(hlsCheck.error);
       return;
     }
 
-    if (hlsCheck.url !== rtmpHlsUrl) setRtmpHlsUrl(hlsCheck.url);
     onSourceChange(
       buildCustomRtmpSource(serverCheck.url, keyCheck.key, hlsCheck.url, rtmpLabel)
     );
@@ -228,7 +197,7 @@ export default function SourceSelector({ onSourceChange, currentSource }) {
             <div className="relative">
               <Radio className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
-                placeholder="RTMPS server URL — e.g. rtmps://live.cloudflare.com:443/live/"
+                placeholder="RTMPS server URL — e.g. rtmps://your-provider.com/live/"
                 value={rtmpServerUrl}
                 onChange={(e) => {
                   setRtmpServerUrl(e.target.value);

@@ -1,4 +1,4 @@
-import { buildCustomRtmpSource, buildRtmpSource, RTMP_HLS_URL } from './rtmp';
+import { buildCustomRtmpSource, buildRtmpSource } from './rtmp';
 import { isYoutubeLiveUrl } from './youtube';
 
 /** Robustly extract the HLS URL from embed query strings (CMS often mangles encoding). */
@@ -34,15 +34,10 @@ export function parseHlsParam(search) {
   return hlsUrl || '';
 }
 
-function defaultRtmpSource() {
-  if (!RTMP_HLS_URL) return null;
-  return buildRtmpSource('', RTMP_HLS_URL);
-}
-
 export function parseEmbedSource(search = '') {
   const trimmed = search?.trim() || '';
   if (!trimmed || trimmed === '?') {
-    return defaultRtmpSource();
+    return null;
   }
 
   const params = new URLSearchParams(trimmed);
@@ -66,14 +61,14 @@ export function parseEmbedSource(search = '') {
         isLive: isYoutubeLiveUrl(url) || params.get('live') === '1',
       };
     }
-    return defaultRtmpSource();
+    return null;
   }
 
   if (type === 'file') {
     const url = params.get('url');
     const fileName = params.get('name') || 'Video';
     if (url) return { type: 'file', url, fileName };
-    return defaultRtmpSource();
+    return null;
   }
 
   if (type === 'rtmp') {
@@ -92,10 +87,11 @@ export function parseEmbedSource(search = '') {
 
     const streamKey = params.get('key') || '';
     const inputId = inputIdParam;
-    const source = buildRtmpSource(streamKey, hlsUrl, inputId);
+    const customerCode = params.get('customer') || null;
+    const source = buildRtmpSource(streamKey, hlsUrl, inputId, customerCode);
     if (source.hlsUrl) return source;
-    return defaultRtmpSource();
+    return null;
   }
 
-  return defaultRtmpSource();
+  return null;
 }

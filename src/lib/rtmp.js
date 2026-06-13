@@ -1,12 +1,3 @@
-export const RTMP_SERVER_URL =
-  import.meta.env.VITE_RTMP_SERVER_URL ?? 'rtmps://live.cloudflare.com:443/live/';
-
-export const RTMP_STREAM_KEY = import.meta.env.VITE_RTMP_STREAM_KEY ?? '';
-
-export const RTMP_HLS_URL = import.meta.env.VITE_RTMP_HLS_URL ?? '';
-
-export const RTMP_CUSTOMER_CODE = import.meta.env.VITE_RTMP_CUSTOMER_CODE ?? '';
-
 /** Cloudflare RTMPS keys: hex ingest token + "k" + hex live input id. */
 export const CLOUDFLARE_STREAM_KEY_RE = /^[a-f0-9]{20,64}k[a-f0-9]{20,64}$/;
 
@@ -77,34 +68,34 @@ export function getLiveInputId(streamKey) {
 }
 
 /** Build HLS manifest URL from live input ID + customer code. */
-export function buildHlsUrlFromInputId(inputId) {
+export function buildHlsUrlFromInputId(inputId, customerCode) {
   const id = inputId?.trim();
-  if (!id || !RTMP_CUSTOMER_CODE) return null;
-  return `https://customer-${RTMP_CUSTOMER_CODE}.cloudflarestream.com/${id}/manifest/video.m3u8`;
+  const code = customerCode?.trim();
+  if (!id || !code) return null;
+  return `https://customer-${code}.cloudflarestream.com/${id}/manifest/video.m3u8`;
 }
 
-/** Build HLS manifest URL from stream key + customer code when env URL is missing. */
-export function buildHlsUrlFromKey(streamKey) {
-  return buildHlsUrlFromInputId(getLiveInputId(streamKey));
+/** Build HLS manifest URL from stream key + customer code. */
+export function buildHlsUrlFromKey(streamKey, customerCode) {
+  return buildHlsUrlFromInputId(getLiveInputId(streamKey), customerCode);
 }
 
-export function resolveHlsUrl(streamKey, hlsUrlOverride, inputIdOverride) {
+export function resolveHlsUrl(streamKey, hlsUrlOverride, inputIdOverride, customerCode) {
   const override = hlsUrlOverride?.trim();
   if (override) return override;
-  const fromInput = buildHlsUrlFromInputId(inputIdOverride);
+  const fromInput = buildHlsUrlFromInputId(inputIdOverride, customerCode);
   if (fromInput) return fromInput;
-  if (RTMP_HLS_URL) return RTMP_HLS_URL;
-  return buildHlsUrlFromKey(streamKey);
+  if (customerCode) return buildHlsUrlFromKey(streamKey, customerCode);
+  return null;
 }
 
-export function buildRtmpSource(streamKey, hlsUrlOverride, inputIdOverride) {
+export function buildRtmpSource(streamKey, hlsUrlOverride, inputIdOverride, customerCode) {
   const key = normalizeStreamKey(streamKey);
-  const hlsUrl = resolveHlsUrl(key, hlsUrlOverride, inputIdOverride);
+  const hlsUrl = resolveHlsUrl(key, hlsUrlOverride, inputIdOverride, customerCode);
   return {
     type: 'rtmp',
     provider: 'cloudflare',
     streamKey: key,
-    serverUrl: RTMP_SERVER_URL,
     hlsUrl,
     url: hlsUrl || `cloudflare:${key}`,
   };
@@ -182,14 +173,14 @@ export function buildCustomRtmpSource(serverUrl, streamKey, hlsUrl, label = '') 
 export function getObsInstructions(sourceOrKey) {
   if (typeof sourceOrKey === 'object' && sourceOrKey?.type === 'rtmp') {
     return {
-      server: sourceOrKey.serverUrl || RTMP_SERVER_URL,
-      key: sourceOrKey.streamKey || RTMP_STREAM_KEY || '(stream key)',
+      server: sourceOrKey.serverUrl || '(RTMPS server URL)',
+      key: sourceOrKey.streamKey || '(stream key)',
     };
   }
 
   return {
-    server: RTMP_SERVER_URL,
-    key: sourceOrKey || RTMP_STREAM_KEY || '(set VITE_RTMP_STREAM_KEY)',
+    server: '(RTMPS server URL)',
+    key: '(stream key)',
   };
 }
 
