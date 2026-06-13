@@ -6,7 +6,7 @@ export function parseHlsParam(search) {
   const params = new URLSearchParams(search);
   let hlsUrl = params.get('hls')?.trim() || '';
 
-  if (hlsUrl && hlsUrl.includes('cloudflarestream.com')) {
+  if (hlsUrl && /^https?:\/\//i.test(hlsUrl)) {
     return hlsUrl;
   }
 
@@ -14,14 +14,14 @@ export function parseHlsParam(search) {
   if (encoded) {
     try {
       const decoded = decodeURIComponent(encoded).trim();
-      if (decoded.includes('cloudflarestream.com')) return decoded;
+      if (/^https?:\/\//i.test(decoded)) return decoded;
     } catch {
       // fall through
     }
   }
 
   const raw = search.match(
-    /[?&]hls=(https?%3A%2F%2F[^&]+|[hH][tT][tT][pP][sS]?:\/\/[^\s&]+cloudflarestream\.com[^\s&]*)/i
+    /[?&]hls=(https?%3A%2F%2F[^&]+|[hH][tT][tT][pP][sS]?:\/\/[^\s&]+)/i
   )?.[1];
   if (raw) {
     try {

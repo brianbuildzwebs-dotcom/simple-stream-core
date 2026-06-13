@@ -99,19 +99,102 @@ export function resolveHlsUrl(streamKey, hlsUrlOverride, inputIdOverride) {
 
 export function buildRtmpSource(streamKey, hlsUrlOverride, inputIdOverride) {
   const key = normalizeStreamKey(streamKey);
+  const hlsUrl = resolveHlsUrl(key, hlsUrlOverride, inputIdOverride);
   return {
     type: 'rtmp',
+    provider: 'cloudflare',
     streamKey: key,
     serverUrl: RTMP_SERVER_URL,
-    hlsUrl: resolveHlsUrl(key, hlsUrlOverride, inputIdOverride),
+    hlsUrl,
+    url: hlsUrl || `cloudflare:${key}`,
   };
 }
 
-export function getObsInstructions(streamKey) {
+export function normalizeRtmpServerUrl(input) {
+  const raw = input?.trim() || '';
+  if (!raw) return '';
+  return raw.endsWith('/') ? raw : `${raw}/`;
+}
+
+export function validateRtmpServerUrl(input) {
+  const url = normalizeRtmpServerUrl(input);
+  if (!url) {
+    return { valid: false, error: 'RTMPS server URL is required.', url: '' };
+  }
+  if (!/^rtmps?:\/\//i.test(url)) {
+    return {
+      valid: false,
+      error: 'Server URL must start with rtmp:// or rtmps://',
+      url,
+    };
+  }
+  return { valid: true, error: '', url };
+}
+
+export function validateCustomStreamKey(input) {
+  const key = input?.trim() || '';
+  if (!key) {
+    return { valid: false, error: 'Stream key is required.', key: '' };
+  }
+  if (key.length > 500) {
+    return { valid: false, error: 'Stream key is too long.', key };
+  }
+  return { valid: true, error: '', key };
+}
+
+export function validateGenericHlsUrl(input) {
+  const url = input?.trim() || '';
+  if (!url) {
+    return {
+      valid: false,
+      error: 'HLS playback URL is required — browsers cannot play raw RTMPS.',
+      url: '',
+    };
+  }
+  try {
+    const parsed = new URL(url);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return { valid: false, error: 'HLS URL must use http:// or https://', url };
+    }
+  } catch {
+    return { valid: false, error: 'Enter a valid HLS manifest URL (https://.../video.m3u8).', url };
+  }
+  return { valid: true, error: '', url };
+}
+
+export function buildCustomRtmpSource(serverUrl, streamKey, hlsUrl, label = '') {
+  const server = normalizeRtmpServerUrl(serverUrl);
+  const key = streamKey.trim();
+  const playback = hlsUrl.trim();
+  const cleanLabel = label?.trim() || null;
+
+  return {
+    type: 'rtmp',
+    provider: 'custom',
+    serverUrl: server,
+    streamKey: key,
+    hlsUrl: playback,
+    label: cleanLabel,
+    url: `${server}|${key}|${playback}`,
+  };
+}
+
+export function getObsInstructions(sourceOrKey) {
+  if (typeof sourceOrKey === 'object' && sourceOrKey?.type === 'rtmp') {
+    return {
+      server: sourceOrKey.serverUrl || RTMP_SERVER_URL,
+      key: sourceOrKey.streamKey || RTMP_STREAM_KEY || '(stream key)',
+    };
+  }
+
   return {
     server: RTMP_SERVER_URL,
-    key: streamKey || RTMP_STREAM_KEY || '(set VITE_RTMP_STREAM_KEY)',
+    key: sourceOrKey || RTMP_STREAM_KEY || '(set VITE_RTMP_STREAM_KEY)',
   };
+}
+
+export function isCloudflareRtmpSource(source) {
+  return source?.type === 'rtmp' && source?.provider !== 'custom';
 }
 
 const HLS_MANIFEST_RE =
