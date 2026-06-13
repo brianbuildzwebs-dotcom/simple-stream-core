@@ -37,9 +37,9 @@ function sourceSubtitle(source) {
   if (source.type === 'youtube') return source.url;
   if (source.type === 'rtmp') {
     if (source.provider === 'custom') {
-      return source.serverUrl || 'Custom RTMPS feed';
+      return source.label || 'Custom RTMPS feed';
     }
-    return `Stream Key: ${source.streamKey}`;
+    return 'Cloudflare Stream';
   }
   return 'Local File';
 }

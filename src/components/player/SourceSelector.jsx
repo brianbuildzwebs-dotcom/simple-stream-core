@@ -6,7 +6,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   buildCustomRtmpSource,
   buildRtmpSource,
-  RTMP_SERVER_URL,
   RTMP_STREAM_KEY,
   RTMP_HLS_URL,
   resolveHlsUrl,
@@ -305,11 +304,7 @@ export default function SourceSelector({ onSourceChange, currentSource }) {
                 </div>
                 {rtmpHlsError && <p className="text-xs text-destructive">{rtmpHlsError}</p>}
                 <p className="text-xs text-muted-foreground">
-                  RTMP Server:{' '}
-                  <span className="font-mono text-foreground/70 break-all">{RTMP_SERVER_URL}</span>
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Use these in OBS or vMix → Custom RTMP Server.
+                  Use your Cloudflare stream key in OBS or vMix → Custom RTMP Server.
                 </p>
                 {!resolveHlsUrl(rtmpKey, rtmpHlsUrl) && (
                   <p className="text-xs text-amber-500/90">

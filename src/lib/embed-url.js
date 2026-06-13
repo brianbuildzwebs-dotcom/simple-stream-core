@@ -18,6 +18,15 @@ export function buildEmbedUrl(source) {
   }
 
   if (source.type === 'rtmp') {
+    if (source.provider === 'custom' && source.serverUrl && source.streamKey && source.hlsUrl) {
+      let url = `${base}/embed?source=rtmp&provider=custom`;
+      url += `&server=${encodeURIComponent(source.serverUrl)}`;
+      url += `&key=${encodeURIComponent(source.streamKey)}`;
+      url += `&hls=${encodeURIComponent(source.hlsUrl)}`;
+      if (source.label) url += `&label=${encodeURIComponent(source.label)}`;
+      return url;
+    }
+
     // Always embed the HLS URL in the iframe src so it works on any host.
     if (source.hlsUrl) {
       return `${base}/embed?hls=${encodeURIComponent(source.hlsUrl)}`;

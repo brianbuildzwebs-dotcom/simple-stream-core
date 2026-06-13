@@ -1,4 +1,4 @@
-import { buildRtmpSource, RTMP_HLS_URL } from './rtmp';
+import { buildCustomRtmpSource, buildRtmpSource, RTMP_HLS_URL } from './rtmp';
 import { isYoutubeLiveUrl } from './youtube';
 
 /** Robustly extract the HLS URL from embed query strings (CMS often mangles encoding). */
@@ -77,8 +77,20 @@ export function parseEmbedSource(search = '') {
   }
 
   if (type === 'rtmp') {
-    const streamKey = params.get('key') || '';
     const hlsUrl = hlsFromQuery || null;
+    const serverParam = params.get('server')?.trim() || '';
+    const provider = params.get('provider');
+    const isCustom = provider === 'custom' || Boolean(serverParam);
+
+    if (isCustom && serverParam && hlsUrl) {
+      const streamKey = params.get('key') || '';
+      const label = params.get('label') || '';
+      if (streamKey) {
+        return buildCustomRtmpSource(serverParam, streamKey, hlsUrl, label);
+      }
+    }
+
+    const streamKey = params.get('key') || '';
     const inputId = inputIdParam;
     const source = buildRtmpSource(streamKey, hlsUrl, inputId);
     if (source.hlsUrl) return source;
