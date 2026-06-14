@@ -35,7 +35,9 @@ export default function VideoPlayer({
   const [videoMountGen, setVideoMountGen] = useState(0);
   const [youtubeIsLive, setYoutubeIsLive] = useState(false);
   const [rtmpIsLive, setRtmpIsLive] = useState(false);
+  const [rtmpNeedsUserStart, setRtmpNeedsUserStart] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const rtmpStartPlaybackRef = useRef(null);
   const hideTimeout = useRef(null);
   const viewerCount = useViewerPresence(!!source);
   const isRtmp = source?.type === 'rtmp';
@@ -85,6 +87,7 @@ export default function VideoPlayer({
     setIsPlaying(false);
     setYoutubeIsLive(false);
     setRtmpIsLive(false);
+    setRtmpNeedsUserStart(false);
     if (source?.type === 'rtmp') {
       setIsMuted(true);
     } else {
@@ -127,12 +130,24 @@ export default function VideoPlayer({
     const video = videoRef.current;
     if (!video) return;
     if (video.paused) {
+      if (isRtmp && embed && rtmpNeedsUserStart && rtmpStartPlaybackRef.current) {
+        rtmpStartPlaybackRef.current();
+        return;
+      }
       video.play().then(() => setIsPlaying(true)).catch(() => {});
     } else {
       video.pause();
       setIsPlaying(false);
     }
   };
+
+  const handleRtmpUserStartRequired = useCallback((required) => {
+    setRtmpNeedsUserStart(required);
+  }, []);
+
+  const handleRegisterRtmpStartPlayback = useCallback((startPlayback) => {
+    rtmpStartPlaybackRef.current = startPlayback;
+  }, []);
 
   const handleVolumeChange = (val) => {
     setVolume(val);
@@ -231,6 +246,8 @@ export default function VideoPlayer({
           onPlayingChange={handleRtmpPlayingChange}
           onLiveChange={setRtmpIsLive}
           onVideoReady={handleRtmpVideoReady}
+          onUserStartRequiredChange={embed ? handleRtmpUserStartRequired : undefined}
+          onRegisterStartPlayback={embed ? handleRegisterRtmpStartPlayback : undefined}
         />
       );
     }
@@ -273,7 +290,7 @@ export default function VideoPlayer({
       currentTime={currentTime}
       duration={duration}
       onSeek={handleSeek}
-      visible={controlsVisible}
+      visible={controlsVisible && !(embed && isRtmp && rtmpNeedsUserStart)}
       live={isRtmp && rtmpIsLive}
       hideManualExpand={embed}
     />

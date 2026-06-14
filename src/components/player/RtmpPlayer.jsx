@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef, useState, memo, useCallback } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState, memo, useCallback } from 'react';
 import Hls from 'hls.js';
 import { Radio, Loader2, AlertCircle, Play } from 'lucide-react';
 import LiveBadge from './LiveBadge';
@@ -29,6 +29,8 @@ function RtmpPlayer({
   onPlayingChange,
   onLiveChange,
   onVideoReady,
+  onUserStartRequiredChange,
+  onRegisterStartPlayback,
   videoRef: externalVideoRef,
 }) {
   const internalVideoRef = useRef(null);
@@ -44,6 +46,7 @@ function RtmpPlayer({
   const activeUrlRef = useRef('');
   const onPlayingChangeRef = useRef(onPlayingChange);
   const onLiveChangeRef = useRef(onLiveChange);
+  const playbackUnlockedRef = useRef(false);
   const inIframe = typeof window !== 'undefined' && window.self !== window.top;
   const deferUntilClick = embed && inIframe;
 
@@ -78,23 +81,55 @@ function RtmpPlayer({
     }
   }, []);
 
+  const unlockPlayback = useCallback((video) => {
+    if (!video) return;
+    playbackUnlockedRef.current = true;
+    video.muted = true;
+    video.setAttribute('playsinline', '');
+    video.setAttribute('webkit-playsinline', 'true');
+    const attempt = video.play();
+    if (attempt?.catch) {
+      attempt.catch(() => {});
+    }
+  }, []);
+
+  const tryStartPlayback = useCallback(
+    (video) => {
+      if (!video) return;
+
+      if (!video.paused) {
+        markLive();
+        return;
+      }
+
+      video
+        .play()
+        .then(markLive)
+        .catch(() => {
+          if (video.readyState >= 2) {
+            markLive();
+            return;
+          }
+          setStatus(STATUS.WAITING);
+          setErrorMsg('Tap play again to start.');
+          setAwaitingClick(true);
+          playbackUnlockedRef.current = false;
+        });
+    },
+    [markLive]
+  );
+
   const attachHls = useCallback(
-    (video, url) => {
+    (video, url, { autoPlay = true } = {}) => {
       destroyHls();
       activeUrlRef.current = url;
 
       const tryPlay = () => {
-        video
-          .play()
-          .then(markLive)
-          .catch(() => {
-            if (video.readyState >= 2) markLive();
-            else {
-              setStatus(STATUS.WAITING);
-              setErrorMsg('Tap play again to start.');
-              setAwaitingClick(true);
-            }
-          });
+        if (!autoPlay && deferUntilClick) {
+          setStatus(STATUS.WAITING);
+          return;
+        }
+        tryStartPlayback(video);
       };
 
       if (Hls.isSupported()) {
@@ -125,7 +160,13 @@ function RtmpPlayer({
           }
         });
         hls.on(Hls.Events.FRAG_BUFFERED, () => {
-          if (video.readyState >= 2 && !video.paused) markLive();
+          if (video.readyState >= 2 && !video.paused) {
+            markLive();
+            return;
+          }
+          if (playbackUnlockedRef.current && video.paused) {
+            tryStartPlayback(video);
+          }
         });
         hls.on(Hls.Events.ERROR, (_event, data) => {
           if (!data.fatal) return;
@@ -167,7 +208,7 @@ function RtmpPlayer({
       setStatus(STATUS.ERROR);
       setErrorMsg('HLS playback is not supported in this browser.');
     },
-    [destroyHls, markLive, updateStreamLive]
+    [deferUntilClick, destroyHls, tryStartPlayback, updateStreamLive]
   );
 
   useLayoutEffect(() => {
@@ -176,11 +217,8 @@ function RtmpPlayer({
       activeUrlRef.current = '';
       destroyHls();
       updateStreamLive(false);
+      playbackUnlockedRef.current = false;
       if (!hlsUrl) setStatus(STATUS.NO_URL);
-      return undefined;
-    }
-
-    if (deferUntilClick) {
       return undefined;
     }
 
@@ -188,9 +226,14 @@ function RtmpPlayer({
       return undefined;
     }
 
+    if (deferUntilClick) {
+      setAwaitingClick(true);
+      playbackUnlockedRef.current = false;
+    }
+
     setStatus(STATUS.LOADING);
     setErrorMsg('');
-    attachHls(video, hlsUrl);
+    attachHls(video, hlsUrl, { autoPlay: !deferUntilClick });
 
     const onPlaying = () => onPlayingChangeRef.current?.(true);
     const onPausing = () => onPlayingChangeRef.current?.(false);
@@ -205,15 +248,31 @@ function RtmpPlayer({
     };
   }, [hlsUrl, deferUntilClick, attachHls, destroyHls, updateStreamLive]);
 
-  const handleStartClick = () => {
+  const handleStartClick = useCallback(() => {
     const video = internalVideoRef.current;
     if (!video || !hlsUrl) return;
 
     setAwaitingClick(false);
     setStatus(STATUS.LOADING);
     setErrorMsg('');
-    attachHls(video, hlsUrl);
-  };
+    unlockPlayback(video);
+
+    if (!hlsRef.current || activeUrlRef.current !== hlsUrl) {
+      attachHls(video, hlsUrl, { autoPlay: true });
+      return;
+    }
+
+    tryStartPlayback(video);
+  }, [attachHls, hlsUrl, tryStartPlayback, unlockPlayback]);
+
+  useEffect(() => {
+    onUserStartRequiredChange?.(deferUntilClick && awaitingClick);
+  }, [awaitingClick, deferUntilClick, onUserStartRequiredChange]);
+
+  useEffect(() => {
+    onRegisterStartPlayback?.(handleStartClick);
+    return () => onRegisterStartPlayback?.(null);
+  }, [handleStartClick, onRegisterStartPlayback]);
 
   if (status === STATUS.NO_URL) {
     return (
@@ -229,8 +288,9 @@ function RtmpPlayer({
     );
   }
 
-  const showOverlay =
-    awaitingClick || status === STATUS.LOADING || status === STATUS.WAITING;
+  const showTapToPlay = deferUntilClick && awaitingClick;
+  const showLoadingOverlay =
+    !showTapToPlay && status !== STATUS.ERROR && (status === STATUS.LOADING || status === STATUS.WAITING);
 
   return (
     <div className="absolute inset-0">
@@ -239,33 +299,36 @@ function RtmpPlayer({
         className="absolute inset-0 w-full h-full object-contain bg-black"
         playsInline
         muted
+        preload="auto"
       />
-      {showOverlay && status !== STATUS.ERROR && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/70 z-10">
-          <div className="text-center text-white px-4 max-w-sm">
-            {awaitingClick ? (
-              <>
-                <button
-                  type="button"
-                  onClick={handleStartClick}
-                  className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105"
-                  aria-label="Play live stream"
-                >
-                  <Play className="w-7 h-7 ml-0.5" />
-                </button>
-                <p className="text-sm font-medium">Play live stream</p>
-              </>
-            ) : (
-              <>
-                <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2 text-primary" />
-                <p className="text-sm font-medium">{WAITING_MSG}</p>
-              </>
+      {showTapToPlay && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/70">
+          <button
+            type="button"
+            onClick={handleStartClick}
+            className="flex max-w-xs flex-col items-center px-6 py-4 text-center text-white touch-manipulation"
+            aria-label="Play live stream"
+          >
+            <span className="mb-3 flex h-20 w-20 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95">
+              <Play className="ml-0.5 h-8 w-8" />
+            </span>
+            <span className="text-sm font-medium">Tap to play live stream</span>
+            {status === STATUS.LOADING && (
+              <span className="mt-2 text-xs text-white/60">Connecting…</span>
             )}
+          </button>
+        </div>
+      )}
+      {showLoadingOverlay && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/70">
+          <div className="px-4 text-center text-white">
+            <Loader2 className="mx-auto mb-2 h-8 w-8 animate-spin text-primary" />
+            <p className="text-sm font-medium">{WAITING_MSG}</p>
           </div>
         </div>
       )}
       {status === STATUS.ERROR && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-10">
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/80">
           <div className="text-center text-white px-4">
             <AlertCircle className="w-8 h-8 mx-auto mb-2 text-destructive" />
             <p className="text-sm">{errorMsg}</p>
