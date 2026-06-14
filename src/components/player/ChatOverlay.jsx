@@ -200,12 +200,12 @@ export default function ChatOverlay({
   const visibleMessages = scopeMessages(messages, sourceKey);
 
   const chatBtnClass = embed
-    ? 'absolute top-2 right-2 z-20 h-10 w-10 safe-area-pt safe-area-pr'
+    ? 'absolute top-4 right-4 z-20 h-10 w-10 safe-area-pt safe-area-pr'
     : 'absolute top-4 right-4 z-20 w-10 h-10';
 
   const useDockedPanel = embed && dockTarget;
   const panelClass = useDockedPanel
-    ? 'flex h-full min-h-0 flex-col bg-black/95 overflow-hidden pointer-events-auto'
+    ? 'flex h-full min-h-0 flex-col bg-black/60 backdrop-blur-md overflow-hidden pointer-events-auto'
     : embed
       ? 'absolute top-10 right-2 bottom-12 z-30 flex w-[min(240px,40%)] min-w-[180px] flex-col bg-black/90 backdrop-blur-md rounded-xl border border-white/10 overflow-hidden pointer-events-auto shadow-xl'
       : 'absolute top-16 right-4 bottom-16 w-72 max-w-[calc(100%-2rem)] z-10 flex flex-col bg-black/60 backdrop-blur-md rounded-xl border border-white/10 overflow-hidden pointer-events-auto';
@@ -293,7 +293,7 @@ export default function ChatOverlay({
       {!hideViewerBadge && viewerCount > 0 && (
         <div
           className={`absolute z-20 flex items-center gap-1.5 rounded-full bg-black/60 backdrop-blur-sm border border-white/10 px-2.5 py-1.5 pointer-events-none ${
-            embed ? 'top-2 left-2 safe-area-pt' : 'top-4 right-14'
+            embed ? 'top-4 left-4 safe-area-pt' : 'top-4 right-14'
           }`}
         >
           <Users className="w-3.5 h-3.5 text-white/70" />
@@ -319,7 +319,7 @@ export default function ChatOverlay({
             : renderPanel())}
       </AnimatePresence>
 
-      {!isOpen && visibleMessages.length > 0 && (
+      {!isOpen && visibleMessages.length > 0 && !useDockedPanel && (
         <button
           type="button"
           onClick={() => setIsOpen(true)}

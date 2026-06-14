@@ -35,12 +35,15 @@ export default function VideoPlayer({
   const [videoMountGen, setVideoMountGen] = useState(0);
   const [youtubeIsLive, setYoutubeIsLive] = useState(false);
   const [rtmpIsLive, setRtmpIsLive] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatDockEl, setChatDockEl] = useState(null);
   const hideTimeout = useRef(null);
   const viewerCount = useViewerPresence(!!source);
   const isRtmp = source?.type === 'rtmp';
   const isYoutube = source?.type === 'youtube';
   const sourceKey = getSourceKey(source);
-  const chatEnabled = !embed && settings.chat_enabled !== false;
+  const chatEnabled = settings.chat_enabled !== false;
+  const embedChatDock = embed && chatEnabled;
 
   useEffect(() => {
     onViewerCountChange?.(viewerCount);
@@ -56,21 +59,13 @@ export default function VideoPlayer({
 
   const showControls = useCallback(() => {
     setControlsVisible(true);
-    if (embed) return;
     if (hideTimeout.current) clearTimeout(hideTimeout.current);
     hideTimeout.current = setTimeout(() => {
       if (isPlaying) setControlsVisible(false);
     }, 3000);
-  }, [isPlaying, embed]);
+  }, [isPlaying]);
 
-  useEffect(() => {
-    if (embed) {
-      setControlsVisible(true);
-      return undefined;
-    }
-    showControls();
-    return undefined;
-  }, [isPlaying, showControls, embed]);
+  useEffect(() => { showControls(); }, [isPlaying, showControls]);
 
   useEffect(() => {
     setCurrentTime(0);
@@ -243,14 +238,16 @@ export default function VideoPlayer({
     return null;
   };
 
-  return (
+  const playerShell = (
     <div
       ref={containerRef}
-      className={`relative w-full max-w-full bg-black overflow-hidden box-border ${
-        embed ? 'embed-player-shell h-full min-h-0 flex-1' : 'aspect-video rounded-xl'
+      className={`relative w-full max-w-full overflow-hidden box-border bg-black ${
+        embed
+          ? `min-h-0 flex-1 ${chatOpen ? 'flex-[3] rounded-t-xl' : 'flex-1 rounded-xl'}`
+          : 'aspect-video rounded-xl'
       }`}
       onMouseMove={showControls}
-      onMouseLeave={() => !embed && isPlaying && setControlsVisible(false)}
+      onMouseLeave={() => isPlaying && setControlsVisible(false)}
       onTouchStart={showControls}
     >
       {renderContent()}
@@ -267,6 +264,8 @@ export default function VideoPlayer({
           chatEnabled={chatEnabled}
           profanityFilter={settings.profanity_filter === true}
           embed={embed}
+          dockTarget={embedChatDock ? chatDockEl : null}
+          onOpenChange={setChatOpen}
           hideViewerBadge={(isRtmp && rtmpIsLive) || (isYoutube && youtubeIsLive)}
         />
       )}
@@ -285,9 +284,26 @@ export default function VideoPlayer({
           onSeek={handleSeek}
           visible={controlsVisible}
           live={isRtmp && rtmpIsLive}
-          compact={embed}
           hideManualExpand={embed}
-          pinned={embed}
+        />
+      )}
+    </div>
+  );
+
+  if (!embed) {
+    return playerShell;
+  }
+
+  return (
+    <div className="embed-player-shell flex h-full w-full min-h-0 flex-col gap-0">
+      {playerShell}
+      {embedChatDock && (
+        <div
+          ref={setChatDockEl}
+          className={`flex min-h-0 flex-col overflow-hidden rounded-b-xl border border-t-0 border-white/10 bg-black/60 backdrop-blur-md ${
+            chatOpen ? 'flex-[2] min-h-[160px]' : 'hidden'
+          }`}
+          aria-hidden={!chatOpen}
         />
       )}
     </div>

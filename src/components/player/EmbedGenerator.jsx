@@ -94,7 +94,7 @@ ${wordpressSiteScript}`
                       <span className="w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0" />
                       Responsive 16:9 — scales on mobile and landscape
                     </p>
-                    <p>Live chat is temporarily disabled on embed while we stabilize the mobile player.</p>
+                    <p>Includes live chat — opens below the video, never over it. Add <span className="font-mono">?chat=0</span> to disable.</p>
                     <p>
                       <span className="font-semibold text-foreground/90">WordPress:</span> use a{' '}
                       <span className="font-mono">Custom HTML</span> block (not the Embed block).
@@ -104,7 +104,7 @@ ${wordpressSiteScript}`
                       <span className="font-mono">Appearance → Theme File Editor → footer.php</span> (before{' '}
                       <span className="font-mono">&lt;/body&gt;</span>), or use an &quot;Insert Headers and Footers&quot; plugin.
                     </p>
-                    <p>On mobile, rotate your phone to landscape — the player resizes automatically.</p>
+                    <p>On mobile, rotate to landscape for a wider view. Chat slides up from the bottom of the player.</p>
                   </div>
                   {source.type === 'rtmp' && !source.hlsUrl && (
                     <p className="text-xs text-amber-500/90">
