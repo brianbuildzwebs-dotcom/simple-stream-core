@@ -50,7 +50,7 @@ export async function exitFullscreen() {
   }
 }
 
-/** Ask the parent page (e.g. WordPress) to fullscreen this iframe. Parent must listen for the message. */
+/** Ask the parent page (e.g. WordPress) to fullscreen this iframe. */
 export function requestParentIframeFullscreen() {
   if (!isInIframe()) return false;
 
@@ -62,29 +62,32 @@ export function requestParentIframeFullscreen() {
   }
 }
 
-/** Open the embed page in a new browser tab — works when iframe fullscreen is blocked. */
-export function openEmbedInNewTab() {
+/** Open embed in a new tab. `fs=1` enables dedicated fullscreen-friendly layout. */
+export function openEmbedInNewTab(fullscreenMode = false) {
   if (typeof window === 'undefined') return;
-  window.open(window.location.href, '_blank', 'noopener,noreferrer');
+
+  const url = new URL(window.location.href);
+  if (fullscreenMode) {
+    url.searchParams.set('fs', '1');
+    url.searchParams.set('chat', '0');
+  }
+  window.open(url.toString(), '_blank', 'noopener,noreferrer');
 }
 
-const PARENT_FS_WAIT_MS = 400;
+const PARENT_FS_WAIT_MS = 350;
 
 /**
- * Enter or exit fullscreen with mobile / WordPress iframe fallbacks.
- * Returns: 'exited' | 'native' | 'parent' | 'pseudo' | 'failed'
+ * Enter or exit fullscreen. In WordPress iframes, falls back to opening a new tab.
  */
-export async function toggleFullscreen({
-  container,
-  video,
-  iframe,
-  isPseudoExpanded = false,
-  onPseudoExpandedChange,
-} = {}) {
-  if (getFullscreenElement() || isPseudoExpanded) {
+export async function toggleFullscreen({ container, video, iframe, preferNewTab = false } = {}) {
+  if (getFullscreenElement()) {
     await exitFullscreen();
-    onPseudoExpandedChange?.(false);
     return 'exited';
+  }
+
+  if (preferNewTab) {
+    openEmbedInNewTab(true);
+    return 'newtab';
   }
 
   if (video?.webkitEnterFullscreen) {
@@ -109,10 +112,11 @@ export async function toggleFullscreen({
     if (getFullscreenElement()) {
       return 'parent';
     }
+    openEmbedInNewTab(true);
+    return 'newtab';
   }
 
-  onPseudoExpandedChange?.(true);
-  return 'pseudo';
+  return 'failed';
 }
 
 export function subscribeFullscreenChange(handler) {

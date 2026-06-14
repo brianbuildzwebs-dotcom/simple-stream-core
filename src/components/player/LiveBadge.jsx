@@ -8,7 +8,7 @@ function formatViewerCount(n) {
 
 export default function LiveBadge({ viewerCount = 0, showViewers = true }) {
   return (
-    <div className="absolute top-3 left-3 z-20 flex items-center gap-2 pointer-events-none">
+    <div className="absolute top-2 left-2 z-20 flex max-w-[calc(100%-4.5rem)] flex-wrap items-center gap-1.5 pointer-events-none safe-area-pt">
       <div className="flex items-center gap-1.5 rounded-full bg-red-600/90 px-2.5 py-1 text-xs font-semibold text-white">
         <span className="h-2 w-2 rounded-full bg-white animate-pulse" />
         LIVE

@@ -37,7 +37,6 @@ export default function VideoPlayer({
   const [videoMountGen, setVideoMountGen] = useState(0);
   const [youtubeIsLive, setYoutubeIsLive] = useState(false);
   const [rtmpIsLive, setRtmpIsLive] = useState(false);
-  const [pseudoExpanded, setPseudoExpanded] = useState(false);
   const hideTimeout = useRef(null);
   const showOpenInBrowser = embed && isInIframe();
   const viewerCount = useViewerPresence(!!source);
@@ -160,28 +159,17 @@ export default function VideoPlayer({
   const handleFullscreen = async () => {
     const youtubeIframe = isYoutube ? youtubePlayerRef.current?.getIframe?.() : null;
 
-    const result = await toggleFullscreen({
+    await toggleFullscreen({
       container: containerRef.current,
       video: videoRef.current,
       iframe: youtubeIframe || null,
-      isPseudoExpanded: pseudoExpanded,
-      onPseudoExpandedChange: (expanded) => {
-        setPseudoExpanded(expanded);
-        setIsFullscreen(expanded);
-      },
+      preferNewTab: false,
     });
-
-    if (result === 'native' || result === 'parent') {
-      setPseudoExpanded(false);
-      setIsFullscreen(true);
-    }
   };
 
   useEffect(() => {
     const syncFullscreen = () => {
-      const active = !!getFullscreenElement();
-      setIsFullscreen(active || pseudoExpanded);
-      if (active) setPseudoExpanded(false);
+      setIsFullscreen(!!getFullscreenElement());
     };
     const unsubscribe = subscribeFullscreenChange(syncFullscreen);
 
@@ -197,7 +185,7 @@ export default function VideoPlayer({
       video?.removeEventListener('webkitbeginfullscreen', onWebkitBegin);
       video?.removeEventListener('webkitendfullscreen', onWebkitEnd);
     };
-  }, [isRtmp, source?.url, source?.hlsUrl, videoMountGen, pseudoExpanded]);
+  }, [isRtmp, source?.url, source?.hlsUrl, videoMountGen]);
 
   const renderContent = () => {
     if (!source) {
@@ -253,12 +241,8 @@ export default function VideoPlayer({
   return (
     <div
       ref={containerRef}
-      className={`relative w-full bg-black overflow-hidden ${
-        pseudoExpanded
-          ? 'player-pseudo-expanded fixed inset-0 z-[9999] h-[100dvh] w-full'
-          : embed
-            ? 'h-full min-h-0 flex-1'
-            : 'aspect-video rounded-xl'
+      className={`embed-player-shell relative w-full max-w-full bg-black overflow-hidden box-border ${
+        embed ? 'h-full min-h-0 flex-1' : 'aspect-video rounded-xl'
       }`}
       onMouseMove={showControls}
       onMouseLeave={() => isPlaying && setControlsVisible(false)}
@@ -298,8 +282,9 @@ export default function VideoPlayer({
           visible={controlsVisible}
           live={isRtmp && rtmpIsLive}
           minimal={isYoutube && embed}
+          compact={embed}
           showOpenInBrowser={showOpenInBrowser}
-          onOpenInBrowser={openEmbedInNewTab}
+          onOpenInBrowser={() => openEmbedInNewTab(true)}
         />
       )}
     </div>

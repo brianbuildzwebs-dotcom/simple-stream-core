@@ -17,6 +17,7 @@ export default function VideoControls({
   visible,
   live = false,
   minimal = false,
+  compact = false,
   showOpenInBrowser = false,
   onOpenInBrowser,
 }) {
@@ -29,34 +30,96 @@ export default function VideoControls({
 
   const progress = duration ? (currentTime / duration) * 100 : 0;
 
+  const expandButton = (
+    <button
+      type="button"
+      onClick={onFullscreenToggle}
+      className={
+        compact || minimal
+          ? 'flex h-10 items-center gap-1.5 rounded-full bg-black/75 px-3 text-white shadow-lg backdrop-blur-sm transition-colors hover:bg-black/90 touch-manipulation'
+          : 'flex h-11 w-11 sm:h-8 sm:w-8 items-center justify-center text-white/70 hover:text-white transition-colors touch-manipulation'
+      }
+      aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+    >
+      {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+      {(compact || minimal) && (
+        <span className="text-xs font-medium">{isFullscreen ? 'Exit' : 'Expand'}</span>
+      )}
+    </button>
+  );
+
   if (minimal) {
     return (
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: visible ? 1 : 0, y: visible ? 0 : 12 }}
         transition={{ duration: 0.25 }}
-        className="absolute bottom-3 right-3 z-40 flex gap-2 pointer-events-auto touch-manipulation"
+        className="absolute bottom-2 right-2 z-40 flex max-w-[calc(100%-1rem)] gap-2 pointer-events-auto touch-manipulation safe-area-pb safe-area-pr"
         style={{ pointerEvents: visible ? 'auto' : 'none' }}
       >
         {showOpenInBrowser && (
           <button
             type="button"
             onClick={onOpenInBrowser}
-            className="flex h-11 w-11 items-center justify-center rounded-full bg-black/70 text-white shadow-lg backdrop-blur-sm transition-colors hover:bg-black/85"
+            className="flex h-10 items-center gap-1.5 rounded-full bg-black/75 px-3 text-white shadow-lg backdrop-blur-sm transition-colors hover:bg-black/90 touch-manipulation"
             aria-label="Open player in new tab"
-            title="Open in browser (best for WordPress mobile)"
           >
-            <ExternalLink className="w-5 h-5" />
+            <ExternalLink className="w-4 h-4" />
+            <span className="text-xs font-medium">Open</span>
           </button>
         )}
-        <button
-          type="button"
-          onClick={onFullscreenToggle}
-          className="flex h-11 w-11 items-center justify-center rounded-full bg-black/70 text-white shadow-lg backdrop-blur-sm transition-colors hover:bg-black/85"
-          aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-        >
-          {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
-        </button>
+        {expandButton}
+      </motion.div>
+    );
+  }
+
+  if (compact) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: visible ? 1 : 0, y: visible ? 0 : 12 }}
+        transition={{ duration: 0.25 }}
+        className="absolute bottom-0 left-0 right-0 z-40 bg-gradient-to-t from-black/90 to-transparent px-2 pb-2 pt-8 pointer-events-auto touch-manipulation safe-area-pb"
+        style={{ pointerEvents: visible ? 'auto' : 'none' }}
+      >
+        <div className="flex items-center justify-between gap-2 max-w-full">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <button
+              type="button"
+              onClick={onPlayPause}
+              className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-white/15 text-white"
+            >
+              {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+            </button>
+            <button
+              type="button"
+              onClick={onMuteToggle}
+              className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-white/10 text-white/80"
+              aria-label={isMuted ? 'Unmute' : 'Mute'}
+            >
+              {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+            </button>
+            {live && (
+              <span className="truncate text-xs font-semibold uppercase tracking-wide text-red-400">
+                Live
+              </span>
+            )}
+          </div>
+          <div className="flex flex-shrink-0 items-center gap-2">
+            {showOpenInBrowser && (
+              <button
+                type="button"
+                onClick={onOpenInBrowser}
+                className="flex h-10 items-center gap-1.5 rounded-full bg-black/75 px-3 text-white shadow-lg backdrop-blur-sm touch-manipulation"
+                aria-label="Open player in new tab"
+              >
+                <ExternalLink className="w-4 h-4" />
+                <span className="text-xs font-medium">Open</span>
+              </button>
+            )}
+            {expandButton}
+          </div>
+        </div>
       </motion.div>
     );
   }

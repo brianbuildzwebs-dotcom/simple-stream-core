@@ -192,7 +192,7 @@ export default function ChatOverlay({
   const visibleMessages = scopeMessages(messages, sourceKey);
 
   const chatBtnClass = embed
-    ? 'absolute top-3 right-3 z-20 w-11 h-11 sm:w-10 sm:h-10'
+    ? 'absolute top-2 right-2 z-20 h-10 w-10 safe-area-pt safe-area-pr'
     : 'absolute top-4 right-4 z-20 w-10 h-10';
 
   const panelClass = embed
@@ -200,7 +200,7 @@ export default function ChatOverlay({
     : 'absolute top-16 right-4 bottom-16 w-72 max-w-[calc(100%-2rem)] z-10 flex flex-col bg-black/60 backdrop-blur-md rounded-xl border border-white/10 overflow-hidden pointer-events-auto';
 
   const tickerClass = embed
-    ? 'absolute bottom-20 sm:bottom-4 right-3 left-3 sm:left-auto z-10 max-w-none sm:max-w-[calc(100%-2rem)]'
+    ? 'absolute bottom-14 left-2 right-2 z-10 max-w-[calc(100%-1rem)] sm:bottom-4 sm:left-auto sm:right-3 sm:max-w-[calc(100%-2rem)]'
     : 'absolute bottom-4 right-4 z-10 max-w-[calc(100%-2rem)]';
 
   return (
@@ -208,7 +208,7 @@ export default function ChatOverlay({
       {!hideViewerBadge && viewerCount > 0 && (
         <div
           className={`absolute z-20 flex items-center gap-1.5 rounded-full bg-black/60 backdrop-blur-sm border border-white/10 px-2.5 py-1.5 pointer-events-none ${
-            embed ? 'top-3 right-14' : 'top-4 right-14'
+            embed ? 'top-2 left-2 safe-area-pt' : 'top-4 right-14'
           }`}
         >
           <Users className="w-3.5 h-3.5 text-white/70" />

@@ -5,8 +5,10 @@ import { parseEmbedSource } from '@/lib/embed-params';
 
 function parseEmbedOptions(search = '') {
   const params = new URLSearchParams(search);
+  const fullscreenMode = params.get('fs') === '1';
   return {
-    chatEnabled: params.get('chat') !== '0',
+    chatEnabled: !fullscreenMode && params.get('chat') !== '0',
+    fullscreenMode,
   };
 }
 
@@ -23,11 +25,17 @@ export default function Embed() {
 
   useEffect(() => {
     document.documentElement.classList.add('embed-route');
-    return () => document.documentElement.classList.remove('embed-route');
-  }, []);
+    if (embedOptions.fullscreenMode) {
+      document.documentElement.classList.add('embed-fs-mode');
+    }
+    return () => {
+      document.documentElement.classList.remove('embed-route');
+      document.documentElement.classList.remove('embed-fs-mode');
+    };
+  }, [embedOptions.fullscreenMode]);
 
   return (
-    <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-black supports-[min-height:100dvh]:min-h-[100dvh]">
+    <div className="embed-player-shell flex h-[100dvh] w-full max-w-[100vw] flex-col overflow-hidden bg-black supports-[min-height:100dvh]:min-h-[100dvh]">
       <VideoPlayer
         source={source}
         embed

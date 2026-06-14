@@ -61,7 +61,16 @@ export default function YoutubePlayer({
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(container);
-    return () => observer.disconnect();
+
+    const onOrientation = () => window.setTimeout(measure, 150);
+    window.addEventListener('resize', measure);
+    window.addEventListener('orientationchange', onOrientation);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('orientationchange', onOrientation);
+    };
   }, []);
 
   useEffect(() => {
@@ -88,8 +97,22 @@ export default function YoutubePlayer({
     };
   }, [source.playlistId, onLiveChange]);
 
+  const mountedSourceKeyRef = useRef('');
+
   useEffect(() => {
     if (!playerOptions || !playerSize) return undefined;
+
+    const sourceKey = `${playerId}:${source.videoId || ''}:${source.playlistId || ''}`;
+    const existing = playerRef.current;
+
+    if (existing && mountedSourceKeyRef.current === sourceKey) {
+      try {
+        existing.setSize(playerSize.width, playerSize.height);
+      } catch {
+        // Player may still be initializing.
+      }
+      return undefined;
+    }
 
     let cancelled = false;
     const liveCheckTimers = [];
@@ -187,6 +210,7 @@ export default function YoutubePlayer({
         }
 
         playerRef.current = new YT.Player(playerId, ytConfig);
+        mountedSourceKeyRef.current = sourceKey;
       });
     };
 
@@ -199,6 +223,7 @@ export default function YoutubePlayer({
       stopPolling();
       playerRef.current?.destroy?.();
       playerRef.current = null;
+      mountedSourceKeyRef.current = '';
     };
   }, [
     playerId,

@@ -10,12 +10,16 @@ export default function EmbedGenerator({ source }) {
 
   const embedUrl = buildEmbedUrl(source);
 
+  const wordpressSiteScript = `<script>
+window.addEventListener('message',function(e){if(!e.data||e.data.type!=='simple-stream-request-fullscreen')return;var f=e.source&&e.source.frameElement;if(!f)return;var r=f.requestFullscreen||f.webkitRequestFullscreen;if(r)r.call(f);});
+</script>`;
+
   const embedCode = source
-    ? `<div style="position:relative;width:100%;max-width:960px;margin:0 auto;aspect-ratio:16/9;background:#000;border-radius:12px;overflow:hidden;">
+    ? `<div style="position:relative;width:100%;max-width:100%;margin:0 auto;padding-bottom:56.25%;height:0;overflow:hidden;background:#000;border-radius:12px;box-sizing:border-box;">
   <iframe
     title="Live stream player"
     src="${embedUrl}"
-    style="position:absolute;inset:0;width:100%;height:100%;border:0;display:block;"
+    style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;display:block;"
     allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope"
     allowfullscreen
     webkitallowfullscreen
@@ -23,9 +27,7 @@ export default function EmbedGenerator({ source }) {
     loading="lazy"
   ></iframe>
 </div>
-<script>
-window.addEventListener('message',function(e){if(!e.data||e.data.type!=='simple-stream-request-fullscreen')return;var f=e.source&&e.source.frameElement;if(!f)return;var r=f.requestFullscreen||f.webkitRequestFullscreen;if(r)r.call(f);});
-</script>`
+${wordpressSiteScript}`
     : '';
 
   const handleCopy = async () => {
@@ -94,11 +96,15 @@ window.addEventListener('message',function(e){if(!e.data||e.data.type!=='simple-
                     </p>
                     <p>Includes live chat and viewer count. Add <span className="font-mono">?chat=0</span> to the URL to hide chat.</p>
                     <p>
-                      <span className="font-semibold text-foreground/90">WordPress:</span> paste into a{' '}
-                      <span className="font-mono">Custom HTML</span> block (not the Embed block). The script
-                      enables mobile fullscreen on Android/iOS.
+                      <span className="font-semibold text-foreground/90">WordPress:</span> use a{' '}
+                      <span className="font-mono">Custom HTML</span> block (not the Embed block).
                     </p>
-                    <p>On mobile inside WordPress, tap the <span className="font-mono">open-in-new-tab</span> button if expand still fails.</p>
+                    <p>
+                      If WordPress strips the script, add it once under{' '}
+                      <span className="font-mono">Appearance → Theme File Editor → footer.php</span> (before{' '}
+                      <span className="font-mono">&lt;/body&gt;</span>), or use an &quot;Insert Headers and Footers&quot; plugin.
+                    </p>
+                    <p>On mobile, tap <span className="font-semibold">Expand</span> or <span className="font-semibold">Open</span> — Open launches fullscreen in a new browser tab (most reliable on Android).</p>
                   </div>
                   {source.type === 'rtmp' && !source.hlsUrl && (
                     <p className="text-xs text-amber-500/90">
