@@ -19,6 +19,7 @@ export default function VideoControls({
   minimal = false,
   compact = false,
   hideManualExpand = false,
+  pinned = false,
   showOpenInBrowser = false,
   onOpenInBrowser,
 }) {
@@ -81,11 +82,12 @@ export default function VideoControls({
   if (compact) {
     return (
       <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: visible ? 1 : 0, y: visible ? 0 : 12 }}
-        transition={{ duration: 0.25 }}
-        className="absolute bottom-0 left-0 right-0 z-40 bg-gradient-to-t from-black/90 to-transparent px-2 pb-2 pt-8 pointer-events-auto touch-manipulation safe-area-pb"
-        style={{ pointerEvents: visible ? 'auto' : 'none' }}
+        initial={pinned ? { opacity: 1, y: 0 } : { opacity: 0, y: 12 }}
+        animate={pinned ? { opacity: 1, y: 0 } : { opacity: visible ? 1 : 0, y: visible ? 0 : 12 }}
+        transition={{ duration: pinned ? 0 : 0.25 }}
+        className="absolute bottom-0 left-0 right-0 z-50 bg-gradient-to-t from-black/95 via-black/70 to-transparent px-3 pb-3 pt-10 pointer-events-auto touch-manipulation safe-area-pb"
+        style={{ pointerEvents: pinned || visible ? 'auto' : 'none' }}
+        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-2 max-w-full">
           <div className="flex items-center gap-1.5 min-w-0">

@@ -20,7 +20,8 @@ export default function Embed() {
 
   const mergedSettings = {
     ...settings,
-    chat_enabled: embedOptions.chatEnabled && settings.chat_enabled !== false,
+    // Chat disabled on embed until docked layout is stable on mobile.
+    chat_enabled: false,
   };
 
   useEffect(() => {
@@ -39,7 +40,7 @@ export default function Embed() {
       <VideoPlayer
         source={source}
         embed
-        settings={loading ? { chat_enabled: embedOptions.chatEnabled } : mergedSettings}
+        settings={loading ? { chat_enabled: false } : mergedSettings}
       />
     </div>
   );
