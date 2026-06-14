@@ -16,6 +16,7 @@ export default function VideoControls({
   onSeek,
   visible,
   live = false,
+  minimal = false,
 }) {
   const formatTime = (seconds) => {
     if (!seconds || isNaN(seconds)) return '0:00';
@@ -26,12 +27,33 @@ export default function VideoControls({
 
   const progress = duration ? (currentTime / duration) * 100 : 0;
 
+  if (minimal) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: visible ? 1 : 0, y: visible ? 0 : 12 }}
+        transition={{ duration: 0.25 }}
+        className="absolute bottom-3 right-3 z-40 pointer-events-auto touch-manipulation"
+        style={{ pointerEvents: visible ? 'auto' : 'none' }}
+      >
+        <button
+          type="button"
+          onClick={onFullscreenToggle}
+          className="flex h-11 w-11 items-center justify-center rounded-full bg-black/70 text-white shadow-lg backdrop-blur-sm transition-colors hover:bg-black/85"
+          aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+        >
+          {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
+        </button>
+      </motion.div>
+    );
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: visible ? 1 : 0, y: visible ? 0 : 20 }}
       transition={{ duration: 0.25 }}
-      className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent pt-12 sm:pt-16 pb-3 px-3 sm:px-4 pointer-events-auto touch-manipulation"
+      className="absolute bottom-0 left-0 right-0 z-40 bg-gradient-to-t from-black/90 via-black/50 to-transparent pt-12 sm:pt-16 pb-3 px-3 sm:px-4 pointer-events-auto touch-manipulation safe-area-pb"
       style={{ pointerEvents: visible ? 'auto' : 'none' }}
     >
       <div className="mb-3">
@@ -131,10 +153,12 @@ export default function VideoControls({
         <div className="flex items-center gap-2">
           {/* Fullscreen */}
           <button
+            type="button"
             onClick={onFullscreenToggle}
-            className="w-8 h-8 flex items-center justify-center text-white/70 hover:text-white transition-colors"
+            className="flex h-11 w-11 sm:h-8 sm:w-8 items-center justify-center text-white/70 hover:text-white transition-colors touch-manipulation"
+            aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
           >
-            {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+            {isFullscreen ? <Minimize className="w-5 h-5 sm:w-4 sm:h-4" /> : <Maximize className="w-5 h-5 sm:w-4 sm:h-4" />}
           </button>
         </div>
       </div>

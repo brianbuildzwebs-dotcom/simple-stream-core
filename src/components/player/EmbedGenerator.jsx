@@ -11,13 +11,15 @@ export default function EmbedGenerator({ source }) {
   const embedUrl = buildEmbedUrl(source);
 
   const embedCode = source
-    ? `<div style="position:relative;width:100%;max-width:960px;margin:0 auto;">
+    ? `<div style="position:relative;width:100%;max-width:960px;margin:0 auto;aspect-ratio:16/9;background:#000;border-radius:12px;overflow:hidden;">
   <iframe
     title="Live stream player"
     src="${embedUrl}"
-    style="width:100%;height:min(75vh,640px);min-height:420px;border:0;border-radius:12px;display:block;"
-    allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+    style="position:absolute;inset:0;width:100%;height:100%;border:0;display:block;"
+    allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope"
     allowfullscreen
+    webkitallowfullscreen
+    mozallowfullscreen
     loading="lazy"
   ></iframe>
 </div>`
@@ -85,7 +87,7 @@ export default function EmbedGenerator({ source }) {
                   <div className="text-xs text-muted-foreground space-y-1.5">
                     <p className="flex items-center gap-2">
                       <span className="w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0" />
-                      Responsive: 100% width, scales on mobile
+                      Responsive 16:9 — scales on mobile and landscape
                     </p>
                     <p>Includes live chat and viewer count. Add <span className="font-mono">?chat=0</span> to the URL to hide chat.</p>
                   </div>

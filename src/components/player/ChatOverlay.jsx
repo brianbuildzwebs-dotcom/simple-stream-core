@@ -200,7 +200,7 @@ export default function ChatOverlay({
     : 'absolute top-16 right-4 bottom-16 w-72 max-w-[calc(100%-2rem)] z-10 flex flex-col bg-black/60 backdrop-blur-md rounded-xl border border-white/10 overflow-hidden pointer-events-auto';
 
   const tickerClass = embed
-    ? 'absolute bottom-16 sm:bottom-4 right-3 left-3 sm:left-auto z-10 max-w-none sm:max-w-[calc(100%-2rem)]'
+    ? 'absolute bottom-20 sm:bottom-4 right-3 left-3 sm:left-auto z-10 max-w-none sm:max-w-[calc(100%-2rem)]'
     : 'absolute bottom-4 right-4 z-10 max-w-[calc(100%-2rem)]';
 
   return (

@@ -6,6 +6,11 @@ import RtmpPlayer from './RtmpPlayer';
 import YoutubePlayer from './YoutubePlayer';
 import { useViewerPresence } from '@/hooks/useViewerPresence';
 import { getSourceKey } from '@/lib/source-key';
+import {
+  getFullscreenElement,
+  subscribeFullscreenChange,
+  toggleFullscreen,
+} from '@/lib/fullscreen';
 
 import { Play } from 'lucide-react';
 
@@ -19,6 +24,7 @@ export default function VideoPlayer({
 }) {
   const videoRef = useRef(null);
   const containerRef = useRef(null);
+  const youtubePlayerRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolume] = useState(0.8);
   const [isMuted, setIsMuted] = useState(false);
@@ -147,20 +153,39 @@ export default function VideoPlayer({
     }
   };
 
-  const handleFullscreen = () => {
-    if (!containerRef.current) return;
-    if (!document.fullscreenElement) {
-      containerRef.current.requestFullscreen();
-    } else {
-      document.exitFullscreen();
+  const handleFullscreen = async () => {
+    if (isYoutube && youtubePlayerRef.current) {
+      const iframe = youtubePlayerRef.current.getIframe?.();
+      await toggleFullscreen({
+        iframe: iframe || containerRef.current,
+        container: containerRef.current,
+      });
+      return;
     }
+
+    await toggleFullscreen({
+      container: containerRef.current,
+      video: videoRef.current,
+    });
   };
 
   useEffect(() => {
-    const handleFsChange = () => setIsFullscreen(!!document.fullscreenElement);
-    document.addEventListener('fullscreenchange', handleFsChange);
-    return () => document.removeEventListener('fullscreenchange', handleFsChange);
-  }, []);
+    const syncFullscreen = () => setIsFullscreen(!!getFullscreenElement());
+    const unsubscribe = subscribeFullscreenChange(syncFullscreen);
+
+    const video = videoRef.current;
+    const onWebkitBegin = () => setIsFullscreen(true);
+    const onWebkitEnd = () => setIsFullscreen(false);
+
+    video?.addEventListener('webkitbeginfullscreen', onWebkitBegin);
+    video?.addEventListener('webkitendfullscreen', onWebkitEnd);
+
+    return () => {
+      unsubscribe();
+      video?.removeEventListener('webkitbeginfullscreen', onWebkitBegin);
+      video?.removeEventListener('webkitendfullscreen', onWebkitEnd);
+    };
+  }, [isRtmp, source?.url, source?.hlsUrl, videoMountGen]);
 
   const renderContent = () => {
     if (!source) {
@@ -180,6 +205,9 @@ export default function VideoPlayer({
           viewerCount={viewerCount}
           onPlayingChange={setIsPlaying}
           onLiveChange={setYoutubeIsLive}
+          onPlayerInstance={(player) => {
+            youtubePlayerRef.current = player;
+          }}
         />
       );
     }
@@ -238,7 +266,7 @@ export default function VideoPlayer({
           hideViewerBadge={(isRtmp && rtmpIsLive) || (isYoutube && youtubeIsLive)}
         />
       )}
-      {source && !isYoutube && (
+      {source && (!isYoutube || embed) && (
         <VideoControls
           isPlaying={isPlaying}
           onPlayPause={handlePlayPause}
@@ -253,6 +281,7 @@ export default function VideoPlayer({
           onSeek={handleSeek}
           visible={controlsVisible}
           live={isRtmp && rtmpIsLive}
+          minimal={isYoutube && embed}
         />
       )}
     </div>

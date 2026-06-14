@@ -16,6 +16,8 @@ export function buildYoutubePlayerOptions({ videoId, playlistId, origin }) {
     modestbranding: 1,
     playsinline: 1,
     enablejsapi: 1,
+    fs: 1,
+    controls: 1,
   };
 
   if (origin) {

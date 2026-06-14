@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import VideoPlayer from '@/components/player/VideoPlayer';
 import { usePlayerSettings } from '@/hooks/usePlayerSettings';
 import { parseEmbedSource } from '@/lib/embed-params';
@@ -20,6 +20,11 @@ export default function Embed() {
     ...settings,
     chat_enabled: embedOptions.chatEnabled && settings.chat_enabled !== false,
   };
+
+  useEffect(() => {
+    document.documentElement.classList.add('embed-route');
+    return () => document.documentElement.classList.remove('embed-route');
+  }, []);
 
   return (
     <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-black supports-[min-height:100dvh]:min-h-[100dvh]">

@@ -15,6 +15,7 @@ export default function YoutubePlayer({
   viewerCount = 0,
   onLiveChange,
   onPlayingChange,
+  onPlayerInstance,
 }) {
   const containerRef = useRef(null);
   const playerRef = useRef(null);
@@ -164,6 +165,7 @@ export default function YoutubePlayer({
           events: {
             onReady: (event) => {
               if (cancelled) return;
+              onPlayerInstance?.(event.target);
               scheduleLiveChecks(event.target);
               startPolling(event.target);
             },
@@ -208,13 +210,14 @@ export default function YoutubePlayer({
     source.isLive,
     onLiveChange,
     onPlayingChange,
+    onPlayerInstance,
   ]);
 
   if (!playerOptions) return null;
 
   return (
-    <div className="absolute inset-0">
-      <div ref={containerRef} className="absolute inset-0" />
+    <div className="absolute inset-0 overflow-hidden">
+      <div ref={containerRef} className="absolute inset-0 [&_iframe]:absolute [&_iframe]:inset-0 [&_iframe]:h-full [&_iframe]:w-full" />
       {isLive && <LiveBadge viewerCount={viewerCount} />}
     </div>
   );
