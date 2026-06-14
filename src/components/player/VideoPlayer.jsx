@@ -8,6 +8,8 @@ import { useViewerPresence } from '@/hooks/useViewerPresence';
 import { getSourceKey } from '@/lib/source-key';
 import {
   getFullscreenElement,
+  isInIframe,
+  openEmbedInNewTab,
   subscribeFullscreenChange,
   toggleFullscreen,
 } from '@/lib/fullscreen';
@@ -35,7 +37,9 @@ export default function VideoPlayer({
   const [videoMountGen, setVideoMountGen] = useState(0);
   const [youtubeIsLive, setYoutubeIsLive] = useState(false);
   const [rtmpIsLive, setRtmpIsLive] = useState(false);
+  const [pseudoExpanded, setPseudoExpanded] = useState(false);
   const hideTimeout = useRef(null);
+  const showOpenInBrowser = embed && isInIframe();
   const viewerCount = useViewerPresence(!!source);
   const isRtmp = source?.type === 'rtmp';
   const isYoutube = source?.type === 'youtube';
@@ -154,23 +158,31 @@ export default function VideoPlayer({
   };
 
   const handleFullscreen = async () => {
-    if (isYoutube && youtubePlayerRef.current) {
-      const iframe = youtubePlayerRef.current.getIframe?.();
-      await toggleFullscreen({
-        iframe: iframe || containerRef.current,
-        container: containerRef.current,
-      });
-      return;
-    }
+    const youtubeIframe = isYoutube ? youtubePlayerRef.current?.getIframe?.() : null;
 
-    await toggleFullscreen({
+    const result = await toggleFullscreen({
       container: containerRef.current,
       video: videoRef.current,
+      iframe: youtubeIframe || null,
+      isPseudoExpanded: pseudoExpanded,
+      onPseudoExpandedChange: (expanded) => {
+        setPseudoExpanded(expanded);
+        setIsFullscreen(expanded);
+      },
     });
+
+    if (result === 'native' || result === 'parent') {
+      setPseudoExpanded(false);
+      setIsFullscreen(true);
+    }
   };
 
   useEffect(() => {
-    const syncFullscreen = () => setIsFullscreen(!!getFullscreenElement());
+    const syncFullscreen = () => {
+      const active = !!getFullscreenElement();
+      setIsFullscreen(active || pseudoExpanded);
+      if (active) setPseudoExpanded(false);
+    };
     const unsubscribe = subscribeFullscreenChange(syncFullscreen);
 
     const video = videoRef.current;
@@ -185,7 +197,7 @@ export default function VideoPlayer({
       video?.removeEventListener('webkitbeginfullscreen', onWebkitBegin);
       video?.removeEventListener('webkitendfullscreen', onWebkitEnd);
     };
-  }, [isRtmp, source?.url, source?.hlsUrl, videoMountGen]);
+  }, [isRtmp, source?.url, source?.hlsUrl, videoMountGen, pseudoExpanded]);
 
   const renderContent = () => {
     if (!source) {
@@ -242,7 +254,11 @@ export default function VideoPlayer({
     <div
       ref={containerRef}
       className={`relative w-full bg-black overflow-hidden ${
-        embed ? 'h-full min-h-0 flex-1' : 'aspect-video rounded-xl'
+        pseudoExpanded
+          ? 'player-pseudo-expanded fixed inset-0 z-[9999] h-[100dvh] w-full'
+          : embed
+            ? 'h-full min-h-0 flex-1'
+            : 'aspect-video rounded-xl'
       }`}
       onMouseMove={showControls}
       onMouseLeave={() => isPlaying && setControlsVisible(false)}
@@ -282,6 +298,8 @@ export default function VideoPlayer({
           visible={controlsVisible}
           live={isRtmp && rtmpIsLive}
           minimal={isYoutube && embed}
+          showOpenInBrowser={showOpenInBrowser}
+          onOpenInBrowser={openEmbedInNewTab}
         />
       )}
     </div>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, SkipBack, SkipForward } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, SkipBack, SkipForward, ExternalLink } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function VideoControls({
@@ -17,6 +17,8 @@ export default function VideoControls({
   visible,
   live = false,
   minimal = false,
+  showOpenInBrowser = false,
+  onOpenInBrowser,
 }) {
   const formatTime = (seconds) => {
     if (!seconds || isNaN(seconds)) return '0:00';
@@ -33,9 +35,20 @@ export default function VideoControls({
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: visible ? 1 : 0, y: visible ? 0 : 12 }}
         transition={{ duration: 0.25 }}
-        className="absolute bottom-3 right-3 z-40 pointer-events-auto touch-manipulation"
+        className="absolute bottom-3 right-3 z-40 flex gap-2 pointer-events-auto touch-manipulation"
         style={{ pointerEvents: visible ? 'auto' : 'none' }}
       >
+        {showOpenInBrowser && (
+          <button
+            type="button"
+            onClick={onOpenInBrowser}
+            className="flex h-11 w-11 items-center justify-center rounded-full bg-black/70 text-white shadow-lg backdrop-blur-sm transition-colors hover:bg-black/85"
+            aria-label="Open player in new tab"
+            title="Open in browser (best for WordPress mobile)"
+          >
+            <ExternalLink className="w-5 h-5" />
+          </button>
+        )}
         <button
           type="button"
           onClick={onFullscreenToggle}
@@ -151,7 +164,17 @@ export default function VideoControls({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Fullscreen */}
+          {showOpenInBrowser && (
+            <button
+              type="button"
+              onClick={onOpenInBrowser}
+              className="flex h-11 w-11 sm:h-8 sm:w-8 items-center justify-center text-white/70 hover:text-white transition-colors touch-manipulation"
+              aria-label="Open player in new tab"
+              title="Open in browser (best for WordPress mobile)"
+            >
+              <ExternalLink className="w-5 h-5 sm:w-4 sm:h-4" />
+            </button>
+          )}
           <button
             type="button"
             onClick={onFullscreenToggle}

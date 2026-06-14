@@ -22,7 +22,10 @@ export default function EmbedGenerator({ source }) {
     mozallowfullscreen
     loading="lazy"
   ></iframe>
-</div>`
+</div>
+<script>
+window.addEventListener('message',function(e){if(!e.data||e.data.type!=='simple-stream-request-fullscreen')return;var f=e.source&&e.source.frameElement;if(!f)return;var r=f.requestFullscreen||f.webkitRequestFullscreen;if(r)r.call(f);});
+</script>`
     : '';
 
   const handleCopy = async () => {
@@ -90,6 +93,12 @@ export default function EmbedGenerator({ source }) {
                       Responsive 16:9 — scales on mobile and landscape
                     </p>
                     <p>Includes live chat and viewer count. Add <span className="font-mono">?chat=0</span> to the URL to hide chat.</p>
+                    <p>
+                      <span className="font-semibold text-foreground/90">WordPress:</span> paste into a{' '}
+                      <span className="font-mono">Custom HTML</span> block (not the Embed block). The script
+                      enables mobile fullscreen on Android/iOS.
+                    </p>
+                    <p>On mobile inside WordPress, tap the <span className="font-mono">open-in-new-tab</span> button if expand still fails.</p>
                   </div>
                   {source.type === 'rtmp' && !source.hlsUrl && (
                     <p className="text-xs text-amber-500/90">
