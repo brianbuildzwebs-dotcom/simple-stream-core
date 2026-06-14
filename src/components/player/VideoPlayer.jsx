@@ -8,8 +8,6 @@ import { useViewerPresence } from '@/hooks/useViewerPresence';
 import { getSourceKey } from '@/lib/source-key';
 import {
   getFullscreenElement,
-  isInIframe,
-  openEmbedInNewTab,
   subscribeFullscreenChange,
   toggleFullscreen,
 } from '@/lib/fullscreen';
@@ -37,8 +35,9 @@ export default function VideoPlayer({
   const [videoMountGen, setVideoMountGen] = useState(0);
   const [youtubeIsLive, setYoutubeIsLive] = useState(false);
   const [rtmpIsLive, setRtmpIsLive] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatDockEl, setChatDockEl] = useState(null);
   const hideTimeout = useRef(null);
-  const showOpenInBrowser = embed && isInIframe();
   const viewerCount = useViewerPresence(!!source);
   const isRtmp = source?.type === 'rtmp';
   const isYoutube = source?.type === 'youtube';
@@ -72,7 +71,6 @@ export default function VideoPlayer({
     setIsPlaying(false);
     setYoutubeIsLive(false);
     setRtmpIsLive(false);
-    // Live streams start muted for browser autoplay — sync UI with actual state
     if (source?.type === 'rtmp') {
       setIsMuted(true);
     } else {
@@ -239,52 +237,67 @@ export default function VideoPlayer({
   };
 
   return (
-    <div
-      ref={containerRef}
-      className={`embed-player-shell relative w-full max-w-full bg-black overflow-hidden box-border ${
-        embed ? 'h-full min-h-0 flex-1' : 'aspect-video rounded-xl'
-      }`}
-      onMouseMove={showControls}
-      onMouseLeave={() => isPlaying && setControlsVisible(false)}
-      onTouchStart={showControls}
-      onClick={embed ? showControls : undefined}
-    >
-      {renderContent()}
-      {source && !isYoutube && (
-        <PlayerToolsMenu videoRef={videoRef} visible={controlsVisible || !isPlaying} />
-      )}
-      {source && (
-        <ChatOverlay
-          key={`${chatEpoch}:${sourceKey || 'none'}`}
-          sourceKey={sourceKey}
-          chatEpoch={chatEpoch}
-          viewerCount={viewerCount}
-          isAdmin={isAdmin}
-          chatEnabled={settings.chat_enabled !== false}
-          profanityFilter={settings.profanity_filter === true}
-          embed={embed}
-          hideViewerBadge={(isRtmp && rtmpIsLive) || (isYoutube && youtubeIsLive)}
-        />
-      )}
-      {source && (!isYoutube || embed) && (
-        <VideoControls
-          isPlaying={isPlaying}
-          onPlayPause={handlePlayPause}
-          volume={volume}
-          onVolumeChange={handleVolumeChange}
-          isMuted={isMuted}
-          onMuteToggle={handleMuteToggle}
-          isFullscreen={isFullscreen}
-          onFullscreenToggle={handleFullscreen}
-          currentTime={currentTime}
-          duration={duration}
-          onSeek={handleSeek}
-          visible={controlsVisible}
-          live={isRtmp && rtmpIsLive}
-          minimal={isYoutube && embed}
-          compact={embed}
-          showOpenInBrowser={showOpenInBrowser}
-          onOpenInBrowser={() => openEmbedInNewTab(true)}
+    <div className={`flex h-full w-full min-h-0 flex-col ${embed ? 'embed-player-shell max-w-full' : ''}`}>
+      <div
+        ref={containerRef}
+        className={`relative w-full max-w-full bg-black overflow-hidden box-border ${
+          embed
+            ? chatOpen
+              ? 'flex-[3] min-h-0'
+              : 'flex-1 min-h-0'
+            : 'aspect-video rounded-xl'
+        }`}
+        onMouseMove={showControls}
+        onMouseLeave={() => isPlaying && setControlsVisible(false)}
+        onTouchStart={showControls}
+        onClick={embed ? showControls : undefined}
+      >
+        {renderContent()}
+        {source && !isYoutube && (
+          <PlayerToolsMenu videoRef={videoRef} visible={controlsVisible || !isPlaying} />
+        )}
+        {source && (
+          <ChatOverlay
+            key={`${chatEpoch}:${sourceKey || 'none'}`}
+            sourceKey={sourceKey}
+            chatEpoch={chatEpoch}
+            viewerCount={viewerCount}
+            isAdmin={isAdmin}
+            chatEnabled={settings.chat_enabled !== false}
+            profanityFilter={settings.profanity_filter === true}
+            embed={embed}
+            dockTarget={embed ? chatDockEl : null}
+            onOpenChange={setChatOpen}
+            hideViewerBadge={(isRtmp && rtmpIsLive) || (isYoutube && youtubeIsLive)}
+          />
+        )}
+        {source && !isYoutube && (
+          <VideoControls
+            isPlaying={isPlaying}
+            onPlayPause={handlePlayPause}
+            volume={volume}
+            onVolumeChange={handleVolumeChange}
+            isMuted={isMuted}
+            onMuteToggle={handleMuteToggle}
+            isFullscreen={isFullscreen}
+            onFullscreenToggle={handleFullscreen}
+            currentTime={currentTime}
+            duration={duration}
+            onSeek={handleSeek}
+            visible={controlsVisible}
+            live={isRtmp && rtmpIsLive}
+            compact={embed}
+            hideManualExpand={embed}
+          />
+        )}
+      </div>
+      {embed && settings.chat_enabled !== false && (
+        <div
+          ref={setChatDockEl}
+          className={`flex min-h-0 flex-col border-t border-white/10 bg-black ${
+            chatOpen ? 'flex-[2]' : 'hidden'
+          }`}
+          aria-hidden={!chatOpen}
         />
       )}
     </div>

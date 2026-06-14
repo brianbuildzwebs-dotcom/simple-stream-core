@@ -18,6 +18,7 @@ export default function VideoControls({
   live = false,
   minimal = false,
   compact = false,
+  hideManualExpand = false,
   showOpenInBrowser = false,
   onOpenInBrowser,
 }) {
@@ -49,6 +50,10 @@ export default function VideoControls({
   );
 
   if (minimal) {
+    if (hideManualExpand && !showOpenInBrowser) {
+      return null;
+    }
+
     return (
       <motion.div
         initial={{ opacity: 0, y: 12 }}
@@ -105,20 +110,22 @@ export default function VideoControls({
               </span>
             )}
           </div>
-          <div className="flex flex-shrink-0 items-center gap-2">
-            {showOpenInBrowser && (
-              <button
-                type="button"
-                onClick={onOpenInBrowser}
-                className="flex h-10 items-center gap-1.5 rounded-full bg-black/75 px-3 text-white shadow-lg backdrop-blur-sm touch-manipulation"
-                aria-label="Open player in new tab"
-              >
-                <ExternalLink className="w-4 h-4" />
-                <span className="text-xs font-medium">Open</span>
-              </button>
-            )}
-            {expandButton}
-          </div>
+          {!hideManualExpand && (
+            <div className="flex flex-shrink-0 items-center gap-2">
+              {showOpenInBrowser && (
+                <button
+                  type="button"
+                  onClick={onOpenInBrowser}
+                  className="flex h-10 items-center gap-1.5 rounded-full bg-black/75 px-3 text-white shadow-lg backdrop-blur-sm touch-manipulation"
+                  aria-label="Open player in new tab"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  <span className="text-xs font-medium">Open</span>
+                </button>
+              )}
+              {expandButton}
+            </div>
+          )}
         </div>
       </motion.div>
     );
@@ -159,7 +166,6 @@ export default function VideoControls({
         )}
       </div>
 
-      {/* Controls Row */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           {!live && (
@@ -171,7 +177,6 @@ export default function VideoControls({
             </button>
           )}
 
-          {/* Play/Pause */}
           <button
             onClick={onPlayPause}
             className="w-11 h-11 sm:w-10 sm:h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-all hover:scale-105"
@@ -188,7 +193,6 @@ export default function VideoControls({
             </button>
           )}
 
-          {/* Volume */}
           <div className="flex items-center gap-1.5 ml-1">
             <button
               type="button"
@@ -226,27 +230,29 @@ export default function VideoControls({
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-          {showOpenInBrowser && (
+        {!hideManualExpand && (
+          <div className="flex items-center gap-2">
+            {showOpenInBrowser && (
+              <button
+                type="button"
+                onClick={onOpenInBrowser}
+                className="flex h-11 w-11 sm:h-8 sm:w-8 items-center justify-center text-white/70 hover:text-white transition-colors touch-manipulation"
+                aria-label="Open player in new tab"
+                title="Open in browser (best for WordPress mobile)"
+              >
+                <ExternalLink className="w-5 h-5 sm:w-4 sm:h-4" />
+              </button>
+            )}
             <button
               type="button"
-              onClick={onOpenInBrowser}
+              onClick={onFullscreenToggle}
               className="flex h-11 w-11 sm:h-8 sm:w-8 items-center justify-center text-white/70 hover:text-white transition-colors touch-manipulation"
-              aria-label="Open player in new tab"
-              title="Open in browser (best for WordPress mobile)"
+              aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
             >
-              <ExternalLink className="w-5 h-5 sm:w-4 sm:h-4" />
+              {isFullscreen ? <Minimize className="w-5 h-5 sm:w-4 sm:h-4" /> : <Maximize className="w-5 h-5 sm:w-4 sm:h-4" />}
             </button>
-          )}
-          <button
-            type="button"
-            onClick={onFullscreenToggle}
-            className="flex h-11 w-11 sm:h-8 sm:w-8 items-center justify-center text-white/70 hover:text-white transition-colors touch-manipulation"
-            aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-          >
-            {isFullscreen ? <Minimize className="w-5 h-5 sm:w-4 sm:h-4" /> : <Maximize className="w-5 h-5 sm:w-4 sm:h-4" />}
-          </button>
-        </div>
+          </div>
+        )}
       </div>
     </motion.div>
   );

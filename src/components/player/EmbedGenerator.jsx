@@ -104,7 +104,7 @@ ${wordpressSiteScript}`
                       <span className="font-mono">Appearance → Theme File Editor → footer.php</span> (before{' '}
                       <span className="font-mono">&lt;/body&gt;</span>), or use an &quot;Insert Headers and Footers&quot; plugin.
                     </p>
-                    <p>On mobile, tap <span className="font-semibold">Expand</span> or <span className="font-semibold">Open</span> — Open launches fullscreen in a new browser tab (most reliable on Android).</p>
+                    <p>On mobile, rotate your phone to landscape — the player resizes automatically. Chat opens below the video, not over it.</p>
                   </div>
                   {source.type === 'rtmp' && !source.hlsUrl && (
                     <p className="text-xs text-amber-500/90">

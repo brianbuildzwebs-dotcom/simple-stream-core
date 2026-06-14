@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { MessageCircle, Send, X, Trash2, ChevronUp, Users } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -27,8 +28,15 @@ export default function ChatOverlay({
   profanityFilter = false,
   embed = false,
   hideViewerBadge = false,
+  dockTarget = null,
+  onOpenChange,
 }) {
   const [isOpen, setIsOpen] = useState(false);
+
+  useEffect(() => {
+    onOpenChange?.(isOpen);
+  }, [isOpen, onOpenChange]);
+
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const chatEndRef = useRef(null);
@@ -195,13 +203,90 @@ export default function ChatOverlay({
     ? 'absolute top-2 right-2 z-20 h-10 w-10 safe-area-pt safe-area-pr'
     : 'absolute top-4 right-4 z-20 w-10 h-10';
 
-  const panelClass = embed
-    ? 'absolute inset-x-0 bottom-0 sm:inset-x-auto sm:bottom-auto sm:top-14 sm:right-3 sm:left-auto z-30 flex flex-col bg-black/85 backdrop-blur-md rounded-t-2xl sm:rounded-xl border border-white/10 overflow-hidden pointer-events-auto max-h-[50vh] sm:max-h-none sm:w-80 sm:max-w-[calc(100%-1.5rem)] sm:h-[min(320px,calc(100%-5rem))]'
-    : 'absolute top-16 right-4 bottom-16 w-72 max-w-[calc(100%-2rem)] z-10 flex flex-col bg-black/60 backdrop-blur-md rounded-xl border border-white/10 overflow-hidden pointer-events-auto';
+  const useDockedPanel = embed && dockTarget;
+  const panelClass = useDockedPanel
+    ? 'flex h-full min-h-0 flex-col bg-black/95 overflow-hidden pointer-events-auto'
+    : embed
+      ? 'absolute top-10 right-2 bottom-12 z-30 flex w-[min(240px,40%)] min-w-[180px] flex-col bg-black/90 backdrop-blur-md rounded-xl border border-white/10 overflow-hidden pointer-events-auto shadow-xl'
+      : 'absolute top-16 right-4 bottom-16 w-72 max-w-[calc(100%-2rem)] z-10 flex flex-col bg-black/60 backdrop-blur-md rounded-xl border border-white/10 overflow-hidden pointer-events-auto';
 
   const tickerClass = embed
-    ? 'absolute bottom-14 left-2 right-2 z-10 max-w-[calc(100%-1rem)] sm:bottom-4 sm:left-auto sm:right-3 sm:max-w-[calc(100%-2rem)]'
+    ? 'absolute bottom-12 left-2 right-2 z-10 max-w-[calc(100%-1rem)] sm:bottom-4 sm:left-auto sm:right-3 sm:max-w-[calc(100%-2rem)]'
     : 'absolute bottom-4 right-4 z-10 max-w-[calc(100%-2rem)]';
+
+  const renderPanel = () => (
+    <motion.div
+      key="chat-panel"
+      initial={embed ? { opacity: 0, y: useDockedPanel ? 16 : 0, x: useDockedPanel ? 0 : 12 } : { opacity: 0, x: 20 }}
+      animate={embed ? { opacity: 1, y: 0, x: 0 } : { opacity: 1, x: 0 }}
+      exit={embed ? { opacity: 0, y: useDockedPanel ? 16 : 0, x: useDockedPanel ? 0 : 12 } : { opacity: 0, x: 20 }}
+      transition={{ duration: 0.25 }}
+      className={panelClass}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between flex-shrink-0">
+        <span className="text-sm font-semibold text-white">Live Chat</span>
+        <span className="text-xs text-white/40">{visibleMessages.length} messages</span>
+      </div>
+
+      <div className="flex-1 overflow-y-auto overscroll-contain px-3 py-2 space-y-2 min-h-0">
+        {visibleMessages.length === 0 ? (
+          <p className="py-6 text-center text-xs text-white/50">No messages yet. Say hello!</p>
+        ) : (
+          visibleMessages.map((msg) => (
+            <motion.div
+              key={msg.id}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className={`text-sm flex items-start gap-1 group ${
+                (msg.user_name || msg.user) === 'You' ? 'bg-primary/10 rounded-lg px-2 py-1' : ''
+              }`}
+            >
+              <div className="flex-1 min-w-0">
+                <span className="font-semibold text-primary">
+                  {msg.user_name || msg.user || 'User'}
+                </span>
+                <span className="text-white/70 ml-1.5 break-words">
+                  {msg.content || msg.text}
+                </span>
+              </div>
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await supabase.from('messages').delete().eq('id', msg.id);
+                  }}
+                  className="flex-shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-red-400 hover:text-red-300 transition-all mt-0.5 touch-manipulation"
+                  aria-label="Delete message"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </motion.div>
+          ))
+        )}
+        <div ref={chatEndRef} />
+      </div>
+
+      <div className="flex gap-2 border-t border-white/10 p-3 flex-shrink-0 safe-area-pb">
+        <Input
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+          placeholder="Type a message..."
+          className="h-10 sm:h-9 flex-1 border-white/10 bg-white/5 text-base sm:text-sm text-white placeholder:text-white/40"
+        />
+        <button
+          type="button"
+          onClick={sendMessage}
+          className="flex h-10 w-10 sm:h-9 sm:w-9 items-center justify-center rounded-md bg-primary text-primary-foreground transition-colors hover:bg-primary/90 flex-shrink-0 touch-manipulation"
+          aria-label="Send message"
+        >
+          <Send size={14} />
+        </button>
+      </div>
+    </motion.div>
+  );
 
   return (
     <>
@@ -228,78 +313,10 @@ export default function ChatOverlay({
       </button>
 
       <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={embed ? { opacity: 0, y: 40 } : { opacity: 0, x: 20 }}
-            animate={embed ? { opacity: 1, y: 0 } : { opacity: 1, x: 0 }}
-            exit={embed ? { opacity: 0, y: 40 } : { opacity: 0, x: 20 }}
-            transition={{ duration: 0.25 }}
-            className={panelClass}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between flex-shrink-0">
-              <span className="text-sm font-semibold text-white">Live Chat</span>
-              <span className="text-xs text-white/40">{visibleMessages.length} messages</span>
-            </div>
-
-            <div className="flex-1 overflow-y-auto overscroll-contain px-3 py-2 space-y-2 min-h-[120px] sm:min-h-0">
-              {visibleMessages.length === 0 ? (
-                <p className="py-6 text-center text-xs text-white/50">No messages yet. Say hello!</p>
-              ) : (
-                visibleMessages.map((msg) => (
-                  <motion.div
-                    key={msg.id}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className={`text-sm flex items-start gap-1 group ${
-                      (msg.user_name || msg.user) === 'You' ? 'bg-primary/10 rounded-lg px-2 py-1' : ''
-                    }`}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <span className="font-semibold text-primary">
-                        {msg.user_name || msg.user || 'User'}
-                      </span>
-                      <span className="text-white/70 ml-1.5 break-words">
-                        {msg.content || msg.text}
-                      </span>
-                    </div>
-                    {isAdmin && (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          await supabase.from('messages').delete().eq('id', msg.id);
-                        }}
-                        className="flex-shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-red-400 hover:text-red-300 transition-all mt-0.5 touch-manipulation"
-                        aria-label="Delete message"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    )}
-                  </motion.div>
-                ))
-              )}
-              <div ref={chatEndRef} />
-            </div>
-
-            <div className="flex gap-2 border-t border-white/10 p-3 flex-shrink-0 safe-area-pb">
-              <Input
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-                placeholder="Type a message..."
-                className="h-10 sm:h-9 flex-1 border-white/10 bg-white/5 text-base sm:text-sm text-white placeholder:text-white/40"
-              />
-              <button
-                type="button"
-                onClick={sendMessage}
-                className="flex h-10 w-10 sm:h-9 sm:w-9 items-center justify-center rounded-md bg-primary text-primary-foreground transition-colors hover:bg-primary/90 flex-shrink-0 touch-manipulation"
-                aria-label="Send message"
-              >
-                <Send size={14} />
-              </button>
-            </div>
-          </motion.div>
-        )}
+        {isOpen &&
+          (useDockedPanel
+            ? createPortal(renderPanel(), dockTarget)
+            : renderPanel())}
       </AnimatePresence>
 
       {!isOpen && visibleMessages.length > 0 && (
