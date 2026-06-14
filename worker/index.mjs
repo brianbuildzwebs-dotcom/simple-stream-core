@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/cloudflare';
 import {
   resolvePlaylistBroadcasts,
   resolveVideoBroadcast,
@@ -9,7 +10,7 @@ const CORS = {
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
-export default {
+const handler = {
   async fetch(request, env) {
     const url = new URL(request.url);
 
@@ -44,7 +45,8 @@ export default {
           { error: 'videoId or playlistId required' },
           { status: 400, headers: CORS }
         );
-      } catch {
+      } catch (error) {
+        Sentry.captureException(error);
         return Response.json({ error: 'upstream_failed' }, { status: 502, headers: CORS });
       }
     }
@@ -65,3 +67,15 @@ export default {
     return response;
   },
 };
+
+export default Sentry.withSentry(
+  (env) =>
+    env.SENTRY_DSN
+      ? {
+          dsn: env.SENTRY_DSN,
+          tracesSampleRate: 0.1,
+          environment: 'production',
+        }
+      : undefined,
+  handler
+);
