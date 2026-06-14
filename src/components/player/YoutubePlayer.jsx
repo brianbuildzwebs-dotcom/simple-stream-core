@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import LiveBadge from './LiveBadge';
 import {
   buildYoutubePlayerOptions,
@@ -26,7 +26,13 @@ export default function YoutubePlayer({
   const liveRequestRef = useRef(0);
 
   const [isLive, setIsLive] = useState(false);
-  const [playerSize, setPlayerSize] = useState(null);
+
+  const onLiveChangeRef = useRef(onLiveChange);
+  const onPlayingChangeRef = useRef(onPlayingChange);
+  const onPlayerInstanceRef = useRef(onPlayerInstance);
+  onLiveChangeRef.current = onLiveChange;
+  onPlayingChangeRef.current = onPlayingChange;
+  onPlayerInstanceRef.current = onPlayerInstance;
 
   const playerId = useMemo(
     () => `youtube-player-${source.videoId || source.playlistId || 'embed'}`,
@@ -39,23 +45,37 @@ export default function YoutubePlayer({
     [source.videoId, source.playlistId, origin]
   );
 
+  const sourceKey = useMemo(
+    () => `${playerId}:${source.videoId || ''}:${source.playlistId || ''}`,
+    [playerId, source.videoId, source.playlistId]
+  );
+
   useEffect(() => {
     setIsLive(false);
-    onLiveChange?.(false);
-  }, [source.videoId, source.playlistId, source.url, onLiveChange]);
+    onLiveChangeRef.current?.(false);
+  }, [source.videoId, source.playlistId, source.url]);
+
+  const resizePlayer = useCallback((width, height) => {
+    if (!playerRef.current || width < MIN_PLAYER_SIZE || height < MIN_PLAYER_SIZE) return;
+    try {
+      playerRef.current.setSize(width, height);
+    } catch {
+      // Player may still be initializing.
+    }
+  }, []);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return undefined;
 
+    let rafId = 0;
     const measure = () => {
-      const width = Math.floor(container.clientWidth);
-      const height = Math.floor(container.clientHeight);
-      if (width >= MIN_PLAYER_SIZE && height >= MIN_PLAYER_SIZE) {
-        setPlayerSize((prev) =>
-          prev?.width === width && prev?.height === height ? prev : { width, height }
-        );
-      }
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        const width = Math.floor(container.clientWidth);
+        const height = Math.floor(container.clientHeight);
+        resizePlayer(width, height);
+      });
     };
 
     measure();
@@ -67,11 +87,12 @@ export default function YoutubePlayer({
     window.addEventListener('orientationchange', onOrientation);
 
     return () => {
+      cancelAnimationFrame(rafId);
       observer.disconnect();
       window.removeEventListener('resize', measure);
       window.removeEventListener('orientationchange', onOrientation);
     };
-  }, []);
+  }, [resizePlayer]);
 
   useEffect(() => {
     if (!source.playlistId) {
@@ -87,7 +108,7 @@ export default function YoutubePlayer({
         const videoId = getPlayerVideoId(playerRef.current);
         if (videoId && status.liveNow.has(videoId)) {
           setIsLive(true);
-          onLiveChange?.(true);
+          onLiveChangeRef.current?.(true);
         }
       }
     });
@@ -95,24 +116,13 @@ export default function YoutubePlayer({
     return () => {
       active = false;
     };
-  }, [source.playlistId, onLiveChange]);
+  }, [source.playlistId]);
 
   const mountedSourceKeyRef = useRef('');
+  const isMountingRef = useRef(false);
 
   useEffect(() => {
-    if (!playerOptions || !playerSize) return undefined;
-
-    const sourceKey = `${playerId}:${source.videoId || ''}:${source.playlistId || ''}`;
-    const existing = playerRef.current;
-
-    if (existing && mountedSourceKeyRef.current === sourceKey) {
-      try {
-        existing.setSize(playerSize.width, playerSize.height);
-      } catch {
-        // Player may still be initializing.
-      }
-      return undefined;
-    }
+    if (!playerOptions) return undefined;
 
     let cancelled = false;
     const liveCheckTimers = [];
@@ -120,7 +130,7 @@ export default function YoutubePlayer({
     const applyLive = (live) => {
       if (cancelled) return;
       setIsLive(live);
-      onLiveChange?.(live);
+      onLiveChangeRef.current?.(live);
     };
 
     const updateLive = async (player) => {
@@ -164,12 +174,24 @@ export default function YoutubePlayer({
       }
     };
 
-    const mountPlayer = () => {
+    const mountPlayer = (width, height) => {
       const container = containerRef.current;
-      if (!container) return;
+      if (
+        !container
+        || width < MIN_PLAYER_SIZE
+        || height < MIN_PLAYER_SIZE
+        || isMountingRef.current
+        || playerRef.current
+      ) {
+        return;
+      }
+
+      isMountingRef.current = true;
 
       loadYoutubeIframeApi().then((YT) => {
+        isMountingRef.current = false;
         if (cancelled || !YT || !containerRef.current) return;
+        if (mountedSourceKeyRef.current === sourceKey && playerRef.current) return;
 
         playerRef.current?.destroy?.();
         lastVideoIdRef.current = '';
@@ -182,20 +204,24 @@ export default function YoutubePlayer({
         container.appendChild(target);
 
         const ytConfig = {
-          width: playerSize.width,
-          height: playerSize.height,
+          width,
+          height,
           playerVars: playerOptions.playerVars,
           events: {
             onReady: (event) => {
               if (cancelled) return;
-              onPlayerInstance?.(event.target);
+              onPlayerInstanceRef.current?.(event.target);
+              resizePlayer(
+                Math.floor(containerRef.current?.clientWidth || width),
+                Math.floor(containerRef.current?.clientHeight || height)
+              );
               scheduleLiveChecks(event.target);
               startPolling(event.target);
             },
             onStateChange: (event) => {
               if (cancelled) return;
               const playing = event.data === YT.PlayerState.PLAYING;
-              onPlayingChange?.(playing);
+              onPlayingChangeRef.current?.(playing);
               updateLive(event.target);
               if (playing) startPolling(event.target);
               if (event.data === YT.PlayerState.ENDED || event.data === YT.PlayerState.PAUSED) {
@@ -214,29 +240,39 @@ export default function YoutubePlayer({
       });
     };
 
-    mountPlayer();
+    const attemptMount = () => {
+      const container = containerRef.current;
+      if (!container || cancelled || playerRef.current || isMountingRef.current) return;
+      const width = Math.floor(container.clientWidth);
+      const height = Math.floor(container.clientHeight);
+      if (width < MIN_PLAYER_SIZE || height < MIN_PLAYER_SIZE) return;
+      mountPlayer(width, height);
+    };
+
+    mountedSourceKeyRef.current = '';
+    attemptMount();
+
+    const container = containerRef.current;
+    const mountObserver = container
+      ? new ResizeObserver(() => attemptMount())
+      : null;
+    mountObserver?.observe(container);
 
     return () => {
       cancelled = true;
+      isMountingRef.current = false;
+      mountObserver?.disconnect();
       liveRequestRef.current += 1;
       liveCheckTimers.forEach(clearTimeout);
       stopPolling();
       playerRef.current?.destroy?.();
       playerRef.current = null;
       mountedSourceKeyRef.current = '';
+      if (containerRef.current) {
+        containerRef.current.innerHTML = '';
+      }
     };
-  }, [
-    playerId,
-    playerOptions,
-    playerSize,
-    source.videoId,
-    source.playlistId,
-    source.url,
-    source.isLive,
-    onLiveChange,
-    onPlayingChange,
-    onPlayerInstance,
-  ]);
+  }, [playerId, playerOptions, sourceKey, resizePlayer]);
 
   if (!playerOptions) return null;
 

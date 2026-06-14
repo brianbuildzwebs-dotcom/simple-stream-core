@@ -52,6 +52,10 @@ export default function VideoPlayer({
     setIsPlaying(playing);
   }, []);
 
+  const handleYoutubePlayerInstance = useCallback((player) => {
+    youtubePlayerRef.current = player;
+  }, []);
+
   const handleRtmpVideoReady = useCallback(() => {
     setVideoMountGen((n) => n + 1);
   }, []);
@@ -213,9 +217,7 @@ export default function VideoPlayer({
           viewerCount={viewerCount}
           onPlayingChange={setIsPlaying}
           onLiveChange={setYoutubeIsLive}
-          onPlayerInstance={(player) => {
-            youtubePlayerRef.current = player;
-          }}
+          onPlayerInstance={handleYoutubePlayerInstance}
         />
       );
     }
