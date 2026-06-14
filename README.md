@@ -4,6 +4,18 @@ A multi-source video streaming player built with React, Vite, and Supabase.
 
 Watch YouTube videos, upload local files, or connect RTMP streams — with a custom player UI and live chat overlay.
 
+## Project home
+
+| | |
+|---|---|
+| **Local folder** | `C:\Users\Brian\Documents\simple-stream-core` |
+| **GitHub** | [brianbuildzwebs-dotcom/simple-stream-core](https://github.com/brianbuildzwebs-dotcom/simple-stream-core) |
+| **Production** | https://simple-stream-core.brianbuildzwebs.workers.dev |
+| **Cloudflare Worker** | `simple-stream-core` (Workers Builds on push to `main`) |
+| **Sentry** | [simple-webz / simple-stream-core](https://simple-webz.sentry.io/issues/?project=simple-stream-core) |
+
+Open this folder in Cursor/Grok to continue edits. Sentry and Cloudflare are already configured — push to `main` to deploy.
+
 ## Production
 
 | | URL |
