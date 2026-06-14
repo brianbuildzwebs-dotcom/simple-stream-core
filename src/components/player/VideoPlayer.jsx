@@ -36,7 +36,6 @@ export default function VideoPlayer({
   const [youtubeIsLive, setYoutubeIsLive] = useState(false);
   const [rtmpIsLive, setRtmpIsLive] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
-  const [chatDockEl, setChatDockEl] = useState(null);
   const hideTimeout = useRef(null);
   const viewerCount = useViewerPresence(!!source);
   const isRtmp = source?.type === 'rtmp';
@@ -66,6 +65,15 @@ export default function VideoPlayer({
   }, [isPlaying]);
 
   useEffect(() => { showControls(); }, [isPlaying, showControls]);
+
+  useEffect(() => {
+    if (!embed) return undefined;
+    const onOrientation = () => {
+      window.setTimeout(() => window.dispatchEvent(new Event('resize')), 200);
+    };
+    window.addEventListener('orientationchange', onOrientation);
+    return () => window.removeEventListener('orientationchange', onOrientation);
+  }, [embed]);
 
   useEffect(() => {
     setCurrentTime(0);
@@ -238,14 +246,49 @@ export default function VideoPlayer({
     return null;
   };
 
-  const playerShell = (
+  const chatOverlayProps = source && chatEnabled ? {
+    key: `${chatEpoch}:${sourceKey || 'none'}`,
+    sourceKey,
+    chatEpoch,
+    viewerCount,
+    isAdmin,
+    chatEnabled,
+    profanityFilter: settings.profanity_filter === true,
+    embed,
+    hideViewerBadge: (isRtmp && rtmpIsLive) || (isYoutube && youtubeIsLive),
+  } : null;
+
+  const videoControls = source && !isYoutube ? (
+    <VideoControls
+      isPlaying={isPlaying}
+      onPlayPause={handlePlayPause}
+      volume={volume}
+      onVolumeChange={handleVolumeChange}
+      isMuted={isMuted}
+      onMuteToggle={handleMuteToggle}
+      isFullscreen={isFullscreen}
+      onFullscreenToggle={handleFullscreen}
+      currentTime={currentTime}
+      duration={duration}
+      onSeek={handleSeek}
+      visible={controlsVisible}
+      live={isRtmp && rtmpIsLive}
+      hideManualExpand={embed}
+    />
+  ) : null;
+
+  const playerSurfaceClass = embed
+    ? `relative min-h-0 w-full max-w-full flex-1 overflow-hidden box-border bg-black ${
+        chatOpen
+          ? 'rounded-t-xl max-sm:rounded-none sm:rounded-t-xl'
+          : 'rounded-xl max-sm:rounded-none sm:rounded-xl'
+      }`
+    : 'relative aspect-video w-full max-w-full overflow-hidden box-border rounded-xl bg-black';
+
+  const playerSurface = (
     <div
       ref={containerRef}
-      className={`relative w-full max-w-full overflow-hidden box-border bg-black ${
-        embed
-          ? `min-h-0 flex-1 ${chatOpen ? 'flex-[3] rounded-t-xl' : 'flex-1 rounded-xl'}`
-          : 'aspect-video rounded-xl'
-      }`}
+      className={playerSurfaceClass}
       onMouseMove={showControls}
       onMouseLeave={() => isPlaying && setControlsVisible(false)}
       onTouchStart={showControls}
@@ -254,58 +297,81 @@ export default function VideoPlayer({
       {source && !isYoutube && !embed && (
         <PlayerToolsMenu videoRef={videoRef} visible={controlsVisible || !isPlaying} />
       )}
-      {source && chatEnabled && (
-        <ChatOverlay
-          key={`${chatEpoch}:${sourceKey || 'none'}`}
-          sourceKey={sourceKey}
-          chatEpoch={chatEpoch}
-          viewerCount={viewerCount}
-          isAdmin={isAdmin}
-          chatEnabled={chatEnabled}
-          profanityFilter={settings.profanity_filter === true}
-          embed={embed}
-          dockTarget={embedChatDock ? chatDockEl : null}
-          onOpenChange={setChatOpen}
-          hideViewerBadge={(isRtmp && rtmpIsLive) || (isYoutube && youtubeIsLive)}
-        />
-      )}
-      {source && !isYoutube && (
-        <VideoControls
-          isPlaying={isPlaying}
-          onPlayPause={handlePlayPause}
-          volume={volume}
-          onVolumeChange={handleVolumeChange}
-          isMuted={isMuted}
-          onMuteToggle={handleMuteToggle}
-          isFullscreen={isFullscreen}
-          onFullscreenToggle={handleFullscreen}
-          currentTime={currentTime}
-          duration={duration}
-          onSeek={handleSeek}
-          visible={controlsVisible}
-          live={isRtmp && rtmpIsLive}
-          hideManualExpand={embed}
-        />
-      )}
+      {videoControls}
     </div>
   );
 
   if (!embed) {
-    return playerShell;
+    return (
+      <div
+        ref={containerRef}
+        className={playerSurfaceClass}
+        onMouseMove={showControls}
+        onMouseLeave={() => isPlaying && setControlsVisible(false)}
+        onTouchStart={showControls}
+      >
+        {renderContent()}
+        {source && !isYoutube && (
+          <PlayerToolsMenu videoRef={videoRef} visible={controlsVisible || !isPlaying} />
+        )}
+        {chatOverlayProps && <ChatOverlay {...chatOverlayProps} />}
+        {videoControls}
+      </div>
+    );
+  }
+
+  if (embedChatDock && chatOverlayProps) {
+    return (
+      <ChatOverlay
+        {...chatOverlayProps}
+        dockLayout
+        open={chatOpen}
+        onOpenChange={setChatOpen}
+        renderDockLayout={({ chrome, dockPanel }) => (
+          <div
+            className={`embed-player-shell flex h-full w-full min-h-0 gap-0 ${
+              chatOpen
+                ? 'max-sm:landscape:flex-row flex-col'
+                : 'flex-col'
+            }`}
+          >
+            <div
+              className={`relative isolate flex min-h-0 min-w-0 flex-col ${
+                chatOpen ? 'min-h-[38%] flex-[3] max-sm:landscape:min-h-0 max-sm:landscape:flex-[3]' : 'flex-1'
+              }`}
+            >
+              {playerSurface}
+              {chrome}
+            </div>
+            <div
+              className={`flex min-h-0 min-w-0 flex-col overflow-hidden border-white/10 bg-card/95 transition-[flex,height] duration-200 ${
+                chatOpen
+                  ? 'flex-[2] min-h-[140px] max-h-[42dvh] border max-sm:landscape:max-h-none max-sm:landscape:flex-[2] max-sm:landscape:border-l max-sm:landscape:border-t-0 rounded-b-xl max-sm:rounded-none sm:rounded-b-xl max-sm:landscape:rounded-none max-sm:landscape:rounded-r-xl'
+                  : 'h-0 max-h-0 flex-[0] overflow-hidden border-0'
+              }`}
+              aria-hidden={!chatOpen}
+            >
+              {dockPanel}
+            </div>
+          </div>
+        )}
+      />
+    );
   }
 
   return (
-    <div className="embed-player-shell flex h-full w-full min-h-0 flex-col gap-0">
-      {playerShell}
-      {embedChatDock && (
-        <div
-          ref={setChatDockEl}
-          className={`flex min-h-0 flex-col overflow-hidden rounded-b-xl border border-t-0 border-white/10 bg-black/60 backdrop-blur-md ${
-            chatOpen ? 'flex-[2] min-h-[160px]' : 'hidden'
-          }`}
-          aria-hidden={!chatOpen}
-        />
-      )}
+    <div className="embed-player-shell flex h-full w-full min-h-0 flex-col">
+      <div
+        ref={containerRef}
+        className={playerSurfaceClass}
+        onMouseMove={showControls}
+        onMouseLeave={() => isPlaying && setControlsVisible(false)}
+        onTouchStart={showControls}
+      >
+        {renderContent()}
+        {chatOverlayProps && <ChatOverlay {...chatOverlayProps} />}
+        {videoControls}
+      </div>
     </div>
   );
 }

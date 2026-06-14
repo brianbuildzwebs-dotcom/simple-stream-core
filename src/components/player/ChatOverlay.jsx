@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { createPortal } from 'react-dom';
 import { MessageCircle, Send, X, Trash2, ChevronUp, Users } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -28,14 +27,25 @@ export default function ChatOverlay({
   profanityFilter = false,
   embed = false,
   hideViewerBadge = false,
-  dockTarget = null,
+  dockLayout = false,
+  renderDockLayout,
+  open: controlledOpen,
   onOpenChange,
 }) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const isOpen = isControlled ? controlledOpen : uncontrolledOpen;
 
-  useEffect(() => {
-    onOpenChange?.(isOpen);
-  }, [isOpen, onOpenChange]);
+  const setIsOpen = useCallback(
+    (value) => {
+      const next = typeof value === 'function' ? value(isOpen) : value;
+      if (!isControlled) {
+        setUncontrolledOpen(next);
+      }
+      onOpenChange?.(next);
+    },
+    [isControlled, isOpen, onOpenChange]
+  );
 
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
@@ -66,7 +76,10 @@ export default function ChatOverlay({
     if (!chatEnabled || !sourceKey) {
       setMessages([]);
       setInputValue('');
-      setIsOpen(false);
+      if (!isControlled) {
+        setUncontrolledOpen(false);
+      }
+      onOpenChange?.(false);
       sessionStorage.removeItem(ACTIVE_CHAT_SOURCE_KEY);
       return undefined;
     }
@@ -77,7 +90,10 @@ export default function ChatOverlay({
     sessionStorage.setItem(ACTIVE_CHAT_SOURCE_KEY, sourceKey);
     setMessages([]);
     setInputValue('');
-    setIsOpen(false);
+    if (!isControlled) {
+      setUncontrolledOpen(false);
+    }
+    onOpenChange?.(false);
 
     for (const existing of supabase.getChannels()) {
       const topic = existing.topic || '';
@@ -160,7 +176,7 @@ export default function ChatOverlay({
         sessionStorage.removeItem(ACTIVE_CHAT_SOURCE_KEY);
       }
     };
-  }, [chatEnabled, sourceKey, chatEpoch, applyMessages]);
+  }, [chatEnabled, sourceKey, chatEpoch, applyMessages, isControlled, onOpenChange]);
 
   useEffect(() => {
     if (isOpen) {
@@ -203,9 +219,9 @@ export default function ChatOverlay({
     ? 'absolute top-4 right-4 z-20 h-10 w-10 safe-area-pt safe-area-pr'
     : 'absolute top-4 right-4 z-20 w-10 h-10';
 
-  const useDockedPanel = embed && dockTarget;
+  const useDockedPanel = embed && dockLayout;
   const panelClass = useDockedPanel
-    ? 'flex h-full min-h-0 flex-col bg-black/60 backdrop-blur-md overflow-hidden pointer-events-auto'
+    ? 'flex h-full min-h-0 w-full flex-col overflow-hidden bg-card/95 pointer-events-auto'
     : embed
       ? 'absolute top-10 right-2 bottom-12 z-30 flex w-[min(240px,40%)] min-w-[180px] flex-col bg-black/90 backdrop-blur-md rounded-xl border border-white/10 overflow-hidden pointer-events-auto shadow-xl'
       : 'absolute top-16 right-4 bottom-16 w-72 max-w-[calc(100%-2rem)] z-10 flex flex-col bg-black/60 backdrop-blur-md rounded-xl border border-white/10 overflow-hidden pointer-events-auto';
@@ -214,13 +230,21 @@ export default function ChatOverlay({
     ? 'absolute bottom-12 left-2 right-2 z-10 max-w-[calc(100%-1rem)] sm:bottom-4 sm:left-auto sm:right-3 sm:max-w-[calc(100%-2rem)]'
     : 'absolute bottom-4 right-4 z-10 max-w-[calc(100%-2rem)]';
 
-  const renderPanel = () => (
-    <motion.div
-      key="chat-panel"
-      initial={embed ? { opacity: 0, y: useDockedPanel ? 16 : 0, x: useDockedPanel ? 0 : 12 } : { opacity: 0, x: 20 }}
-      animate={embed ? { opacity: 1, y: 0, x: 0 } : { opacity: 1, x: 0 }}
-      exit={embed ? { opacity: 0, y: useDockedPanel ? 16 : 0, x: useDockedPanel ? 0 : 12 } : { opacity: 0, x: 20 }}
-      transition={{ duration: 0.25 }}
+  const renderPanel = () => {
+    const PanelWrapper = useDockedPanel ? 'div' : motion.div;
+    const motionProps = useDockedPanel
+      ? {}
+      : {
+          key: 'chat-panel',
+          initial: embed ? { opacity: 0, y: 0, x: 12 } : { opacity: 0, x: 20 },
+          animate: embed ? { opacity: 1, y: 0, x: 0 } : { opacity: 1, x: 0 },
+          exit: embed ? { opacity: 0, y: 0, x: 12 } : { opacity: 0, x: 20 },
+          transition: { duration: 0.25 },
+        };
+
+    return (
+    <PanelWrapper
+      {...motionProps}
       className={panelClass}
       onClick={(e) => e.stopPropagation()}
     >
@@ -285,10 +309,11 @@ export default function ChatOverlay({
           <Send size={14} />
         </button>
       </div>
-    </motion.div>
-  );
+    </PanelWrapper>
+    );
+  };
 
-  return (
+  const chatChrome = (
     <>
       {!hideViewerBadge && viewerCount > 0 && (
         <div
@@ -312,12 +337,11 @@ export default function ChatOverlay({
         {isOpen ? <X className="w-4 h-4" /> : <MessageCircle className="w-4 h-4" />}
       </button>
 
-      <AnimatePresence>
-        {isOpen &&
-          (useDockedPanel
-            ? createPortal(renderPanel(), dockTarget)
-            : renderPanel())}
-      </AnimatePresence>
+      {!useDockedPanel && (
+        <AnimatePresence>
+          {isOpen && renderPanel()}
+        </AnimatePresence>
+      )}
 
       {!isOpen && visibleMessages.length > 0 && !useDockedPanel && (
         <button
@@ -337,4 +361,13 @@ export default function ChatOverlay({
       )}
     </>
   );
+
+  if (useDockedPanel && renderDockLayout) {
+    return renderDockLayout({
+      chrome: chatChrome,
+      dockPanel: isOpen ? renderPanel() : null,
+    });
+  }
+
+  return chatChrome;
 }
