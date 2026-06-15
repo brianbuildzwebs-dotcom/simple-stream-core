@@ -154,8 +154,14 @@ async function fetchSubscriptionTier(tierId, env) {
 }
 
 async function createStripeCheckoutSession({ tier, user, successUrl, cancelUrl }, env) {
-  if (!env.STRIPE_SECRET_KEY) {
+  const stripeKey = env.STRIPE_SECRET_KEY?.trim();
+  if (!stripeKey) {
     throw new Error('Stripe is not configured');
+  }
+  if (!/^sk_(test|live)_/.test(stripeKey)) {
+    throw new Error(
+      'STRIPE_SECRET_KEY is misconfigured. Run: npx wrangler secret put STRIPE_SECRET_KEY — then paste only your sk_test_... key from Stripe (not the command name).'
+    );
   }
 
   const params = new URLSearchParams({

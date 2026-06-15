@@ -18,6 +18,10 @@ Write-Host "Also run the Supabase migration:"
 Write-Host "  supabase/migrations/20260615000002_stripe_subscriptions.sql"
 Write-Host ""
 
+Write-Host ""
+Write-Host "IMPORTANT: paste ONLY the key value — not the wrangler command." -ForegroundColor Yellow
+Write-Host "Secret key must look like: sk_test_51AbCdE..." -ForegroundColor Yellow
+Write-Host ""
 $secretKey = Read-Host "Paste STRIPE_SECRET_KEY (sk_test_...)"
 if (-not $secretKey.StartsWith("sk_")) {
   throw "STRIPE_SECRET_KEY should start with sk_test_ or sk_live_"
