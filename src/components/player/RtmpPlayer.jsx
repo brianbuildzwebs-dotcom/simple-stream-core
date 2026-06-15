@@ -179,7 +179,7 @@ function RtmpPlayer({
             return;
           }
           setStatus(STATUS.ERROR);
-          setErrorMsg('Unable to play stream. Confirm the broadcast is live.');
+          setErrorMsg('Unable to play stream. Confirm vMix/OBS is live, then try again in 30 seconds.');
           destroyHls();
         });
         return;

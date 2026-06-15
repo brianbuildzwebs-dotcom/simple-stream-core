@@ -41,7 +41,8 @@ export async function createCloudflareLiveInput(env, name) {
       },
       body: JSON.stringify({
         meta: { name: name || 'Simple Streamz Live' },
-        recording: { mode: 'off' },
+        // automatic is required for HLS/DASH playback while live (mode "off" = ingest only)
+        recording: { mode: 'automatic' },
       }),
     }
   );
@@ -68,6 +69,30 @@ export async function createCloudflareLiveInput(env, name) {
     rtmp_ingest_url: rtmpsUrl,
     hls_playback_url: hlsUrl,
   };
+}
+
+/** Live inputs created with recording mode "off" accept RTMPS but cannot play in HLS embeds. */
+export async function enableCloudflareLiveInputPlayback(env, inputId) {
+  const accountId = env.CLOUDFLARE_ACCOUNT_ID;
+  const token = env.CLOUDFLARE_API_TOKEN;
+  if (!accountId || !token || !inputId) return false;
+
+  const response = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/live_inputs/${inputId}`,
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        recording: { mode: 'automatic' },
+      }),
+    }
+  );
+
+  const payload = await response.json().catch(() => ({}));
+  return response.ok && payload.success;
 }
 
 export async function deleteCloudflareLiveInput(env, inputId) {

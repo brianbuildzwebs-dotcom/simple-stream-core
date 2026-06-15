@@ -4,8 +4,10 @@ import {
   resolveVideoBroadcast,
 } from '../functions/_shared/youtube-innertube.mjs';
 import {
+  buildHlsPlaybackUrl,
   createCloudflareLiveInput,
   deleteCloudflareLiveInput,
+  enableCloudflareLiveInputPlayback,
   normalizeCloudflareRtmpsIngestUrl,
 } from './_shared/cloudflare-stream.mjs';
 import { resolveEmbedConfig, recordEmbedView } from './_shared/embed-config.mjs';
@@ -254,10 +256,20 @@ const handler = {
             'stream_keys',
             `user_id=eq.${user.id}&status=neq.revoked&select=*&order=created_at.desc`
           );
-          const streamKeys = (rows ?? []).map((row) => ({
-            ...row,
-            rtmp_ingest_url: normalizeCloudflareRtmpsIngestUrl(row.rtmp_ingest_url),
-          }));
+          const streamKeys = await Promise.all(
+            (rows ?? []).map(async (row) => {
+              if (row.cloudflare_input_id) {
+                await enableCloudflareLiveInputPlayback(env, row.cloudflare_input_id);
+              }
+              return {
+                ...row,
+                rtmp_ingest_url: normalizeCloudflareRtmpsIngestUrl(row.rtmp_ingest_url),
+                hls_playback_url:
+                  buildHlsPlaybackUrl(env.CLOUDFLARE_STREAM_CUSTOMER_CODE, row.cloudflare_input_id) ||
+                  row.hls_playback_url,
+              };
+            })
+          );
           return Response.json({ stream_keys: streamKeys }, { headers: CORS });
         }
 

@@ -1,3 +1,7 @@
+import {
+  buildHlsPlaybackUrl,
+  enableCloudflareLiveInputPlayback,
+} from './cloudflare-stream.mjs';
 import { supabaseSelect, supabaseUpdate } from './supabase-admin.mjs';
 
 function parseYoutubeUrl(url) {
@@ -64,13 +68,24 @@ export async function resolveEmbedConfig(env, trackingCode, referer) {
       `id=eq.${embed.stream_key_id}&select=*`
     );
     const key = keys?.[0];
-    if (key?.hls_playback_url && key?.key_value) {
+    if (key?.status === 'revoked') {
+      return { error: 'Stream key was revoked. Create a new key and update this embed.', status: 422 };
+    }
+    if (key?.cloudflare_input_id) {
+      await enableCloudflareLiveInputPlayback(env, key.cloudflare_input_id);
+    }
+    const hlsUrl =
+      buildHlsPlaybackUrl(env.CLOUDFLARE_STREAM_CUSTOMER_CODE, key?.cloudflare_input_id) ||
+      key?.hls_playback_url;
+    if (hlsUrl && key?.key_value) {
       source = {
         type: 'rtmp',
         provider: 'cloudflare',
         streamKey: key.key_value,
-        hlsUrl: key.hls_playback_url,
-        url: key.hls_playback_url,
+        hlsUrl,
+        url: hlsUrl,
+        inputId: key.cloudflare_input_id,
+        customerCode: env.CLOUDFLARE_STREAM_CUSTOMER_CODE,
         label: key.stream_name || embed.name,
       };
     }
