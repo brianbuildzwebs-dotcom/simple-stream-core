@@ -15,7 +15,7 @@ import { toast } from '@/components/ui/use-toast';
 function StreamKeyCard({ streamKey, onToggle, onRevoke, onRefresh }) {
   const [copied, setCopied] = useState(null);
   const ingestUrl = normalizeCloudflareRtmpsIngestUrl(streamKey.rtmp_ingest_url);
-  const fullRtmp = `${ingestUrl}/${streamKey.key_value}`;
+  const fullRtmp = `${ingestUrl.replace(/\/+$/, '')}/${streamKey.key_value}`;
 
   const copy = (text, field) => {
     navigator.clipboard.writeText(text);
