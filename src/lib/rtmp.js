@@ -101,6 +101,27 @@ export function buildRtmpSource(streamKey, hlsUrlOverride, inputIdOverride, cust
   };
 }
 
+const DEFAULT_CLOUDFLARE_RTMPS_INGEST = 'rtmps://live.cloudflare.com:443/live';
+
+/** Cloudflare's API may return https:// for the RTMPS ingest endpoint — normalize for OBS/vMix. */
+export function normalizeCloudflareRtmpsIngestUrl(url) {
+  const raw = (url || '').trim();
+  if (!raw) return DEFAULT_CLOUDFLARE_RTMPS_INGEST;
+
+  let normalized = raw;
+  if (/^https?:\/\//i.test(normalized)) {
+    normalized = normalized.replace(/^https?:\/\//i, 'rtmps://');
+  } else if (!/^rtmps?:\/\//i.test(normalized)) {
+    return DEFAULT_CLOUDFLARE_RTMPS_INGEST;
+  }
+
+  if (/^rtmp:\/\//i.test(normalized)) {
+    normalized = normalized.replace(/^rtmp:\/\//i, 'rtmps://');
+  }
+
+  return normalized.replace(/\/+$/, '');
+}
+
 export function normalizeRtmpServerUrl(input) {
   const raw = input?.trim() || '';
   if (!raw) return '';

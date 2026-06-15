@@ -9,11 +9,12 @@ import {
   refreshStreamKey,
   updateStreamKeyStatus,
 } from '@/lib/stream-keys-api';
+import { normalizeCloudflareRtmpsIngestUrl } from '@/lib/rtmp';
 import { toast } from '@/components/ui/use-toast';
 
 function StreamKeyCard({ streamKey, onToggle, onRevoke, onRefresh }) {
   const [copied, setCopied] = useState(null);
-  const ingestUrl = streamKey.rtmp_ingest_url || 'rtmps://live.cloudflare.com:443/live';
+  const ingestUrl = normalizeCloudflareRtmpsIngestUrl(streamKey.rtmp_ingest_url);
   const fullRtmp = `${ingestUrl}/${streamKey.key_value}`;
 
   const copy = (text, field) => {
@@ -230,8 +231,14 @@ export default function StreamKeys() {
         <div className="text-xs text-muted-foreground space-y-1">
           <p>1. Open your streaming software (OBS, vMix, Streamlabs, etc.)</p>
           <p>2. Go to <strong className="text-foreground">Settings → Stream → Custom</strong></p>
-          <p>3. Paste the <strong className="text-foreground">RTMP Server URL</strong> into the Server field</p>
-          <p>4. Paste the <strong className="text-foreground">Stream Key</strong> into the Stream Key field</p>
+          <p>
+            3. Paste the <strong className="text-foreground">RTMP Server URL</strong> (starts with{' '}
+            <strong className="text-foreground">rtmps://</strong>) into the Server / URL field
+          </p>
+          <p>
+            4. Paste the <strong className="text-foreground">Stream Key</strong> only — not the full URL.
+            In vMix use <strong className="text-foreground">Stream Name or Key</strong> for the key.
+          </p>
           <p>5. Hit Go Live — your stream appears in embed players linked to this key</p>
         </div>
       </div>

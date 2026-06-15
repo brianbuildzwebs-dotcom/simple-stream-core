@@ -6,6 +6,7 @@ import {
 import {
   createCloudflareLiveInput,
   deleteCloudflareLiveInput,
+  normalizeCloudflareRtmpsIngestUrl,
 } from './_shared/cloudflare-stream.mjs';
 import { resolveEmbedConfig, recordEmbedView } from './_shared/embed-config.mjs';
 import {
@@ -253,7 +254,11 @@ const handler = {
             'stream_keys',
             `user_id=eq.${user.id}&status=neq.revoked&select=*&order=created_at.desc`
           );
-          return Response.json({ stream_keys: rows ?? [] }, { headers: CORS });
+          const streamKeys = (rows ?? []).map((row) => ({
+            ...row,
+            rtmp_ingest_url: normalizeCloudflareRtmpsIngestUrl(row.rtmp_ingest_url),
+          }));
+          return Response.json({ stream_keys: streamKeys }, { headers: CORS });
         }
 
         if (request.method === 'POST') {

@@ -1,3 +1,24 @@
+const DEFAULT_CLOUDFLARE_RTMPS_INGEST = 'rtmps://live.cloudflare.com:443/live';
+
+/** Cloudflare's API may return https:// for the RTMPS ingest endpoint — normalize for OBS/vMix. */
+export function normalizeCloudflareRtmpsIngestUrl(url) {
+  const raw = (url || '').trim();
+  if (!raw) return DEFAULT_CLOUDFLARE_RTMPS_INGEST;
+
+  let normalized = raw;
+  if (/^https?:\/\//i.test(normalized)) {
+    normalized = normalized.replace(/^https?:\/\//i, 'rtmps://');
+  } else if (!/^rtmps?:\/\//i.test(normalized)) {
+    return DEFAULT_CLOUDFLARE_RTMPS_INGEST;
+  }
+
+  if (/^rtmp:\/\//i.test(normalized)) {
+    normalized = normalized.replace(/^rtmp:\/\//i, 'rtmps://');
+  }
+
+  return normalized.replace(/\/+$/, '');
+}
+
 export function buildHlsPlaybackUrl(customerCode, inputId) {
   if (!customerCode || !inputId) return null;
   return `https://customer-${customerCode}.cloudflarestream.com/${inputId}/manifest/video.m3u8`;
@@ -33,7 +54,7 @@ export async function createCloudflareLiveInput(env, name) {
 
   const result = payload.result;
   const inputId = result.uid;
-  const rtmpsUrl = result.rtmps?.url || 'rtmps://live.cloudflare.com:443/live/';
+  const rtmpsUrl = normalizeCloudflareRtmpsIngestUrl(result.rtmps?.url);
   const streamKey = result.rtmps?.streamKey;
   const hlsUrl = buildHlsPlaybackUrl(env.CLOUDFLARE_STREAM_CUSTOMER_CODE, inputId);
 
@@ -44,7 +65,7 @@ export async function createCloudflareLiveInput(env, name) {
   return {
     cloudflare_input_id: inputId,
     key_value: streamKey,
-    rtmp_ingest_url: rtmpsUrl.replace(/\/$/, ''),
+    rtmp_ingest_url: rtmpsUrl,
     hls_playback_url: hlsUrl,
   };
 }
