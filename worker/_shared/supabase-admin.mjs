@@ -52,6 +52,27 @@ export async function supabaseUpdate(env, table, query, patch) {
   return rows?.[0] ?? null;
 }
 
+export async function upsertUserSubscription(env, userId, patch) {
+  const rows = await supabaseSelect(
+    env,
+    'user_subscriptions',
+    `user_id=eq.${userId}&select=id`
+  );
+
+  if (rows?.[0]) {
+    return supabaseUpdate(env, 'user_subscriptions', `user_id=eq.${userId}`, patch);
+  }
+
+  return supabaseInsert(env, 'user_subscriptions', {
+    user_id: userId,
+    trial_active: false,
+    payment_method: 'none',
+    payment_status: 'trial',
+    is_paid: false,
+    ...patch,
+  });
+}
+
 export async function supabaseDelete(env, table, query) {
   const response = await fetch(`${requireSupabaseUrl(env)}/rest/v1/${table}?${query}`, {
     method: 'DELETE',

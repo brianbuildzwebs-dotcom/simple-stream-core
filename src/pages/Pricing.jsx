@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Check, Zap } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { fetchActiveTiers } from '@/lib/subscription';
-import { createCheckoutSession } from '@/lib/stripe';
+import { confirmCheckoutSession, createCheckoutSession } from '@/lib/stripe';
 import { useAuth } from '@/lib/AuthContext';
 import { APP_NAME, SUPPORT_EMAIL } from '@/lib/brand';
 import { toast } from '@/components/ui/use-toast';
@@ -14,6 +14,60 @@ export default function Pricing() {
   const [checkoutTierId, setCheckoutTierId] = useState(null);
   const { isAuthenticated, isLoadingAuth, authChecked } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  useEffect(() => {
+    const checkoutState = searchParams.get('checkout');
+    if (!checkoutState) return;
+
+    const clearCheckoutParams = () => {
+      const next = new URLSearchParams(searchParams);
+      next.delete('checkout');
+      next.delete('session_id');
+      setSearchParams(next, { replace: true });
+    };
+
+    if (checkoutState === 'canceled') {
+      toast({
+        title: 'Checkout canceled',
+        description: 'No charge was made. You can upgrade anytime.',
+      });
+      clearCheckoutParams();
+      return;
+    }
+
+    if (checkoutState !== 'success') return;
+
+    const sessionId = searchParams.get('session_id');
+    if (!sessionId) {
+      clearCheckoutParams();
+      return;
+    }
+
+    confirmCheckoutSession(sessionId)
+      .then((result) => {
+        if (result.activated) {
+          toast({
+            title: 'Subscription activated',
+            description: 'Your paid plan is active. Head to the dashboard to stream.',
+          });
+          navigate('/dashboard');
+          return;
+        }
+        toast({
+          title: 'Payment processing',
+          description: 'Stripe is finalizing your subscription. Refresh in a moment.',
+        });
+      })
+      .catch((error) => {
+        toast({
+          title: 'Could not confirm checkout',
+          description: error.message,
+          variant: 'destructive',
+        });
+      })
+      .finally(clearCheckoutParams);
+  }, [navigate, searchParams, setSearchParams]);
 
   useEffect(() => {
     fetchActiveTiers()

@@ -1,6 +1,13 @@
 import { supabase } from '@/lib/supabase';
 import { authJsonHeaders } from '@/lib/api-auth';
 
+function handleSubscriptionRequired(response, payload) {
+  if (response.status === 402 && payload.code === 'subscription_required') {
+    window.location.assign('/paywall');
+    throw new Error(payload.error || 'Subscription required');
+  }
+}
+
 export async function fetchStreamKeys() {
   const response = await fetch('/api/stream-keys', {
     headers: await authJsonHeaders(),
@@ -19,6 +26,7 @@ export async function createStreamKey(streamName) {
     body: JSON.stringify({ stream_name: streamName }),
   });
   const payload = await response.json().catch(() => ({}));
+  handleSubscriptionRequired(response, payload);
   if (!response.ok) {
     throw new Error(payload.error || 'Failed to create stream key');
   }
@@ -32,6 +40,7 @@ export async function refreshStreamKey(id) {
     body: JSON.stringify({ id }),
   });
   const payload = await response.json().catch(() => ({}));
+  handleSubscriptionRequired(response, payload);
   if (!response.ok) {
     throw new Error(payload.error || 'Failed to refresh stream key');
   }

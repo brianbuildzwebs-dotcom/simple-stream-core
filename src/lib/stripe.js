@@ -6,7 +6,7 @@ export async function createCheckoutSession(tierId) {
     headers: await authJsonHeaders(),
     body: JSON.stringify({
       tierId,
-      successUrl: `${window.location.origin}/dashboard?checkout=success`,
+      successUrl: `${window.location.origin}/pricing?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
       cancelUrl: `${window.location.origin}/pricing?checkout=canceled`,
     }),
   });
@@ -21,4 +21,17 @@ export async function createCheckoutSession(tierId) {
   }
 
   window.location.href = payload.url;
+}
+
+export async function confirmCheckoutSession(sessionId) {
+  const response = await fetch('/api/stripe/confirm', {
+    method: 'POST',
+    headers: await authJsonHeaders(),
+    body: JSON.stringify({ sessionId }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error || 'Failed to confirm checkout');
+  }
+  return payload;
 }

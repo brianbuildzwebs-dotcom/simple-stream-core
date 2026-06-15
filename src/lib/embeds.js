@@ -1,6 +1,13 @@
 import { authJsonHeaders } from '@/lib/api-auth';
 import { APP_NAME } from '@/lib/brand';
 
+function handleSubscriptionRequired(response, payload) {
+  if (response.status === 402 && payload.code === 'subscription_required') {
+    window.location.assign('/paywall');
+    throw new Error(payload.error || 'Subscription required');
+  }
+}
+
 export function buildEmbedUrl(trackingCode) {
   return `${window.location.origin}/embed?code=${trackingCode}`;
 }
@@ -48,6 +55,7 @@ export async function createEmbedInstance({
     }),
   });
   const payload = await response.json().catch(() => ({}));
+  handleSubscriptionRequired(response, payload);
   if (!response.ok) {
     throw new Error(payload.error || 'Failed to create embed');
   }
