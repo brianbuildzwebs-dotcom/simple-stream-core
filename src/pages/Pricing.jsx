@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Check, Zap } from 'lucide-react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { fetchActiveTiers } from '@/lib/subscription';
+import { fetchActiveTiers, initUserSubscription } from '@/lib/subscription';
 import { confirmCheckoutSession, createCheckoutSession } from '@/lib/stripe';
 import { useAuth } from '@/lib/AuthContext';
+import { useSubscription } from '@/hooks/useSubscription';
 import { APP_NAME, SUPPORT_EMAIL } from '@/lib/brand';
 import { toast } from '@/components/ui/use-toast';
 
@@ -12,9 +13,12 @@ export default function Pricing() {
   const [tiers, setTiers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [checkoutTierId, setCheckoutTierId] = useState(null);
-  const { isAuthenticated, isLoadingAuth, authChecked } = useAuth();
+  const { isAuthenticated, isLoadingAuth, authChecked, user } = useAuth();
+  const { isPaid, isExpired, hasAccess, reload } = useSubscription(user);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [confirmingCheckout, setConfirmingCheckout] = useState(false);
+  const confirmedSessionRef = useRef('');
 
   useEffect(() => {
     const checkoutState = searchParams.get('checkout');
@@ -43,10 +47,15 @@ export default function Pricing() {
       clearCheckoutParams();
       return;
     }
+    if (confirmedSessionRef.current === sessionId) return;
+    confirmedSessionRef.current = sessionId;
 
+    setConfirmingCheckout(true);
     confirmCheckoutSession(sessionId)
-      .then((result) => {
+      .then(async (result) => {
         if (result.activated) {
+          await initUserSubscription();
+          await reload();
           toast({
             title: 'Subscription activated',
             description: 'Your paid plan is active. Head to the dashboard to stream.',
@@ -66,8 +75,11 @@ export default function Pricing() {
           variant: 'destructive',
         });
       })
-      .finally(clearCheckoutParams);
-  }, [navigate, searchParams, setSearchParams]);
+      .finally(() => {
+        setConfirmingCheckout(false);
+        clearCheckoutParams();
+      });
+  }, [navigate, reload, searchParams, setSearchParams]);
 
   useEffect(() => {
     fetchActiveTiers()
@@ -76,8 +88,20 @@ export default function Pricing() {
       .finally(() => setLoading(false));
   }, []);
 
-  const handleStartTrial = () => {
-    navigate(isAuthenticated ? '/dashboard' : '/register');
+  const handleGoToDashboard = () => {
+    if (!isAuthenticated) {
+      navigate('/register');
+      return;
+    }
+    if (isExpired && !hasAccess) {
+      toast({
+        title: 'Trial ended',
+        description: 'Choose a plan below and click Subscribe with Stripe to restore access.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    navigate('/dashboard');
   };
 
   const handleTierAction = async (tier) => {
@@ -112,9 +136,21 @@ export default function Pricing() {
           </div>
           <h1 className="text-4xl font-bold font-heading text-foreground">Choose your plan</h1>
           <p className="text-muted-foreground mt-3 text-lg">
-            All plans include a 10-day free trial. No credit card required to start.
+            {isAuthenticated
+              ? isPaid
+                ? 'Manage your plan or return to the dashboard.'
+                : isExpired
+                  ? 'Your trial has ended. Subscribe below to restore streaming access.'
+                  : 'Subscribe now, or continue your free trial from the dashboard.'
+              : 'All plans include a 10-day free trial. No credit card required to start.'}
           </p>
         </motion.div>
+
+        {confirmingCheckout && (
+          <div className="mb-6 text-center text-sm text-muted-foreground">
+            Confirming your subscription…
+          </div>
+        )}
 
         {loading ? (
           <div className="flex justify-center py-20">
@@ -179,25 +215,45 @@ export default function Pricing() {
                   <div className="py-3 text-center text-sm text-muted-foreground">Loading…</div>
                 ) : isAuthenticated ? (
                   <div className="space-y-2">
-                    <button
-                      type="button"
-                      onClick={handleStartTrial}
-                      className={`block w-full text-center py-3 rounded-xl font-semibold text-sm transition-all ${
-                        tier.is_popular
-                          ? 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/20'
-                          : 'bg-secondary text-foreground hover:bg-secondary/80 border border-border'
-                      }`}
-                    >
-                      {tier.cta_label || 'Start Free Trial'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleTierAction(tier)}
-                      disabled={checkoutTierId === tier.id}
-                      className="block w-full text-center py-2 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground transition-all disabled:opacity-60"
-                    >
-                      {checkoutTierId === tier.id ? 'Redirecting…' : 'Upgrade with Stripe →'}
-                    </button>
+                    {isPaid ? (
+                      <button
+                        type="button"
+                        onClick={handleGoToDashboard}
+                        className={`block w-full text-center py-3 rounded-xl font-semibold text-sm transition-all ${
+                          tier.is_popular
+                            ? 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/20'
+                            : 'bg-secondary text-foreground hover:bg-secondary/80 border border-border'
+                        }`}
+                      >
+                        Go to Dashboard
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleTierAction(tier)}
+                          disabled={checkoutTierId === tier.id || confirmingCheckout}
+                          className={`block w-full text-center py-3 rounded-xl font-semibold text-sm transition-all disabled:opacity-60 ${
+                            tier.is_popular
+                              ? 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/20'
+                              : 'bg-secondary text-foreground hover:bg-secondary/80 border border-border'
+                          }`}
+                        >
+                          {checkoutTierId === tier.id
+                            ? 'Opening Stripe Checkout…'
+                            : `Subscribe — $${Number(tier.monthly_price).toFixed(2).replace(/\.00$/, '')}/mo`}
+                        </button>
+                        {!isExpired && (
+                          <button
+                            type="button"
+                            onClick={handleGoToDashboard}
+                            className="block w-full text-center py-2 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground transition-all"
+                          >
+                            Continue free trial →
+                          </button>
+                        )}
+                      </>
+                    )}
                   </div>
                 ) : (
                   <Link
