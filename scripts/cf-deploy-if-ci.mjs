@@ -1,7 +1,11 @@
 import { spawnSync } from 'node:child_process';
 
+// Cloudflare Workers Builds runs `wrangler deploy` as its own deploy step.
+if (process.env.WORKERS_CI === '1') {
+  process.exit(0);
+}
+
 const isCi =
-  process.env.WORKERS_CI === '1' ||
   process.env.CI === 'true' ||
   process.env.CI === '1' ||
   process.env.CF_PAGES === '1';
