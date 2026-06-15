@@ -19,27 +19,94 @@ import {
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
+
+const EMBED_PATCH_FIELDS = new Set([
+  'name',
+  'allowed_domains',
+  'video_source_type',
+  'video_source_url',
+  'stream_key_id',
+  'is_watermark_enabled',
+  'watermark_text',
+  'watermark_position',
+  'watermark_size',
+  'watermark_opacity',
+  'is_active',
+]);
+
+async function assertUserStreamKey(env, userId, streamKeyId) {
+  if (!streamKeyId) return;
+  const rows = await supabaseSelect(
+    env,
+    'stream_keys',
+    `id=eq.${streamKeyId}&user_id=eq.${userId}&select=id`
+  );
+  if (!rows?.[0]) {
+    throw new Error('Stream key not found');
+  }
+}
+
+function authConfigStatus(env) {
+  return {
+    supabase_url: Boolean(env.SUPABASE_URL?.trim()),
+    supabase_anon_key: Boolean(env.SUPABASE_ANON_KEY?.trim()),
+    supabase_service_role_key: Boolean(env.SUPABASE_SERVICE_ROLE_KEY?.trim()),
+    cloudflare_stream: Boolean(
+      env.CLOUDFLARE_ACCOUNT_ID?.trim() && env.CLOUDFLARE_API_TOKEN?.trim()
+    ),
+  };
+}
 
 async function verifySupabaseUser(request, env) {
   const authHeader = request.headers.get('Authorization') || '';
   const token = authHeader.replace(/^Bearer\s+/i, '').trim();
-  if (!token || !env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) {
-    return null;
+  const supabaseUrl = env.SUPABASE_URL?.trim().replace(/\/$/, '');
+  const apiKey = env.SUPABASE_ANON_KEY?.trim() || env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+
+  if (!token) {
+    return { user: null, reason: 'no_token' };
+  }
+  if (!supabaseUrl) {
+    return { user: null, reason: 'missing_supabase_url' };
+  }
+  if (!apiKey) {
+    return { user: null, reason: 'missing_supabase_key' };
   }
 
-  const response = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
+  const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
     headers: {
       Authorization: `Bearer ${token}`,
-      apikey: env.SUPABASE_ANON_KEY,
+      apikey: apiKey,
     },
   });
 
-  if (!response.ok) return null;
+  if (!response.ok) {
+    return { user: null, reason: 'invalid_token' };
+  }
+
   const user = await response.json();
-  return user?.id ? user : null;
+  if (!user?.id) {
+    return { user: null, reason: 'invalid_token' };
+  }
+
+  return { user, reason: null };
+}
+
+function unauthorizedResponse(reason) {
+  if (reason === 'missing_supabase_url' || reason === 'missing_supabase_key') {
+    return Response.json(
+      {
+        error: 'Server auth is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY on the Worker.',
+        code: 'auth_not_configured',
+      },
+      { status: 503, headers: CORS }
+    );
+  }
+
+  return Response.json({ error: 'Unauthorized', code: reason || 'unauthorized' }, { status: 401, headers: CORS });
 }
 
 async function fetchSubscriptionTier(tierId, env) {
@@ -118,6 +185,16 @@ const handler = {
   async fetch(request, env) {
     const url = new URL(request.url);
 
+    if (url.pathname === '/api/auth/status') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: CORS });
+      }
+      if (request.method !== 'GET') {
+        return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
+      }
+      return Response.json(authConfigStatus(env), { headers: CORS });
+    }
+
     if (url.pathname === '/api/stripe/checkout') {
       if (request.method === 'OPTIONS') {
         return new Response(null, { headers: CORS });
@@ -128,9 +205,9 @@ const handler = {
       }
 
       try {
-        const user = await verifySupabaseUser(request, env);
+        const { user, reason } = await verifySupabaseUser(request, env);
         if (!user) {
-          return Response.json({ error: 'Unauthorized' }, { status: 401, headers: CORS });
+          return unauthorizedResponse(reason);
         }
 
         const body = await request.json();
@@ -165,9 +242,18 @@ const handler = {
       }
 
       try {
-        const user = await verifySupabaseUser(request, env);
+        const { user, reason } = await verifySupabaseUser(request, env);
         if (!user) {
-          return Response.json({ error: 'Unauthorized' }, { status: 401, headers: CORS });
+          return unauthorizedResponse(reason);
+        }
+
+        if (request.method === 'GET') {
+          const rows = await supabaseSelect(
+            env,
+            'stream_keys',
+            `user_id=eq.${user.id}&status=neq.revoked&select=*&order=created_at.desc`
+          );
+          return Response.json({ stream_keys: rows ?? [] }, { headers: CORS });
         }
 
         if (request.method === 'POST') {
@@ -246,9 +332,9 @@ const handler = {
       }
 
       try {
-        const user = await verifySupabaseUser(request, env);
+        const { user, reason } = await verifySupabaseUser(request, env);
         if (!user) {
-          return Response.json({ error: 'Unauthorized' }, { status: 401, headers: CORS });
+          return unauthorizedResponse(reason);
         }
 
         const body = await request.json().catch(() => ({}));
@@ -282,6 +368,115 @@ const handler = {
         Sentry.captureException(error);
         return Response.json(
           { error: error.message || 'stream_key_refresh_failed' },
+          { status: 500, headers: CORS }
+        );
+      }
+    }
+
+    if (url.pathname === '/api/embeds') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: CORS });
+      }
+
+      try {
+        const { user, reason } = await verifySupabaseUser(request, env);
+        if (!user) {
+          return unauthorizedResponse(reason);
+        }
+
+        if (request.method === 'POST') {
+          const body = await request.json().catch(() => ({}));
+          const name = (body.name || '').trim();
+          const videoSourceType = body.video_source_type || 'youtube';
+          const videoSourceUrl = (body.video_source_url || '').trim() || null;
+          const streamKeyId = body.stream_key_id || null;
+
+          if (!name) {
+            return Response.json({ error: 'name is required' }, { status: 400, headers: CORS });
+          }
+          if (videoSourceType === 'rtmp' && !streamKeyId) {
+            return Response.json({ error: 'stream_key_id is required for RTMP embeds' }, { status: 400, headers: CORS });
+          }
+          if (videoSourceType === 'youtube' && !videoSourceUrl) {
+            return Response.json({ error: 'video_source_url is required for YouTube embeds' }, { status: 400, headers: CORS });
+          }
+
+          await assertUserStreamKey(env, user.id, streamKeyId);
+
+          const trackingCode = crypto.randomUUID().replace(/-/g, '').slice(0, 20);
+          const embed = await supabaseInsert(env, 'embed_instances', {
+            user_id: user.id,
+            tracking_code: trackingCode,
+            name,
+            video_source_type: videoSourceType,
+            video_source_url: videoSourceUrl,
+            stream_key_id: streamKeyId,
+            is_watermark_enabled: true,
+            watermark_text: '© Simple Streamz',
+            watermark_position: 'bottom_right',
+            watermark_size: 'medium',
+            watermark_opacity: 0.7,
+            is_active: true,
+          });
+
+          return Response.json({ embed }, { headers: CORS });
+        }
+
+        if (request.method === 'PATCH') {
+          const embedId = url.searchParams.get('id');
+          if (!embedId) {
+            return Response.json({ error: 'id is required' }, { status: 400, headers: CORS });
+          }
+
+          const rows = await supabaseSelect(
+            env,
+            'embed_instances',
+            `id=eq.${embedId}&user_id=eq.${user.id}&select=*`
+          );
+          if (!rows?.[0]) {
+            return Response.json({ error: 'Embed not found' }, { status: 404, headers: CORS });
+          }
+
+          const body = await request.json().catch(() => ({}));
+          const patch = {};
+          for (const [key, value] of Object.entries(body)) {
+            if (EMBED_PATCH_FIELDS.has(key)) {
+              patch[key] = value;
+            }
+          }
+
+          if (patch.stream_key_id) {
+            await assertUserStreamKey(env, user.id, patch.stream_key_id);
+          }
+
+          const updated = await supabaseUpdate(env, 'embed_instances', `id=eq.${embedId}`, patch);
+          return Response.json({ embed: updated }, { headers: CORS });
+        }
+
+        if (request.method === 'DELETE') {
+          const embedId = url.searchParams.get('id');
+          if (!embedId) {
+            return Response.json({ error: 'id is required' }, { status: 400, headers: CORS });
+          }
+
+          const rows = await supabaseSelect(
+            env,
+            'embed_instances',
+            `id=eq.${embedId}&user_id=eq.${user.id}&select=id`
+          );
+          if (!rows?.[0]) {
+            return Response.json({ error: 'Embed not found' }, { status: 404, headers: CORS });
+          }
+
+          await supabaseDelete(env, 'embed_instances', `id=eq.${embedId}`);
+          return Response.json({ success: true }, { headers: CORS });
+        }
+
+        return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
+      } catch (error) {
+        Sentry.captureException(error);
+        return Response.json(
+          { error: error.message || 'embed_failed' },
           { status: 500, headers: CORS }
         );
       }

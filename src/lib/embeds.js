@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { authJsonHeaders } from '@/lib/api-auth';
 import { APP_NAME } from '@/lib/brand';
 
 export function buildEmbedUrl(trackingCode) {
@@ -32,48 +32,48 @@ export async function logEmbedView(trackingCode) {
 }
 
 export async function createEmbedInstance({
-  userId,
   name,
   videoSourceType,
   videoSourceUrl,
   streamKeyId,
 }) {
-  const trackingCode = crypto.randomUUID().replace(/-/g, '').slice(0, 20);
-  const { data, error } = await supabase
-    .from('embed_instances')
-    .insert({
-      user_id: userId,
-      tracking_code: trackingCode,
+  const response = await fetch('/api/embeds', {
+    method: 'POST',
+    headers: await authJsonHeaders(),
+    body: JSON.stringify({
       name: name.trim(),
       video_source_type: videoSourceType,
       video_source_url: videoSourceUrl || null,
       stream_key_id: streamKeyId || null,
-      is_watermark_enabled: true,
-      watermark_text: `© ${APP_NAME}`,
-      watermark_position: 'bottom_right',
-      watermark_size: 'medium',
-      watermark_opacity: 0.7,
-      is_active: true,
-    })
-    .select('*')
-    .single();
-
-  if (error) throw error;
-  return data;
+    }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error || 'Failed to create embed');
+  }
+  return payload.embed;
 }
 
 export async function updateEmbedInstance(id, patch) {
-  const { data, error } = await supabase
-    .from('embed_instances')
-    .update(patch)
-    .eq('id', id)
-    .select('*')
-    .single();
-  if (error) throw error;
-  return data;
+  const response = await fetch(`/api/embeds?id=${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: await authJsonHeaders(),
+    body: JSON.stringify(patch),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error || 'Failed to update embed');
+  }
+  return payload.embed;
 }
 
 export async function deleteEmbedInstance(id) {
-  const { error } = await supabase.from('embed_instances').delete().eq('id', id);
-  if (error) throw error;
+  const response = await fetch(`/api/embeds?id=${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: await authJsonHeaders(),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error || 'Failed to delete embed');
+  }
 }

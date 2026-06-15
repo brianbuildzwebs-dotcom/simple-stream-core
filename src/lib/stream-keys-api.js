@@ -1,20 +1,21 @@
 import { supabase } from '@/lib/supabase';
+import { authJsonHeaders } from '@/lib/api-auth';
 
-async function authHeaders() {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.access_token) {
-    throw new Error('You must be logged in');
+export async function fetchStreamKeys() {
+  const response = await fetch('/api/stream-keys', {
+    headers: await authJsonHeaders(),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error || 'Failed to load stream keys');
   }
-  return {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${session.access_token}`,
-  };
+  return payload.stream_keys ?? [];
 }
 
 export async function createStreamKey(streamName) {
   const response = await fetch('/api/stream-keys', {
     method: 'POST',
-    headers: await authHeaders(),
+    headers: await authJsonHeaders(),
     body: JSON.stringify({ stream_name: streamName }),
   });
   const payload = await response.json().catch(() => ({}));
@@ -27,7 +28,7 @@ export async function createStreamKey(streamName) {
 export async function refreshStreamKey(id) {
   const response = await fetch('/api/stream-keys/refresh', {
     method: 'POST',
-    headers: await authHeaders(),
+    headers: await authJsonHeaders(),
     body: JSON.stringify({ id }),
   });
   const payload = await response.json().catch(() => ({}));
@@ -40,7 +41,7 @@ export async function refreshStreamKey(id) {
 export async function deleteStreamKey(id) {
   const response = await fetch(`/api/stream-keys?id=${encodeURIComponent(id)}`, {
     method: 'DELETE',
-    headers: await authHeaders(),
+    headers: await authJsonHeaders(),
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {

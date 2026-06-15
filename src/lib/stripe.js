@@ -1,17 +1,9 @@
-import { supabase } from '@/lib/supabase';
+import { authJsonHeaders } from '@/lib/api-auth';
 
 export async function createCheckoutSession(tierId) {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.access_token) {
-    throw new Error('You must be logged in to upgrade');
-  }
-
   const response = await fetch('/api/stripe/checkout', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${session.access_token}`,
-    },
+    headers: await authJsonHeaders(),
     body: JSON.stringify({
       tierId,
       successUrl: `${window.location.origin}/dashboard?checkout=success`,

@@ -7,8 +7,16 @@ export function supabaseHeaders(serviceKey, extra = {}) {
   };
 }
 
+function requireSupabaseUrl(env) {
+  const url = env.SUPABASE_URL?.trim().replace(/\/$/, '');
+  if (!url) {
+    throw new Error('SUPABASE_URL is not configured on the Worker');
+  }
+  return url;
+}
+
 export async function supabaseSelect(env, table, query) {
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/${table}?${query}`, {
+  const response = await fetch(`${requireSupabaseUrl(env)}/rest/v1/${table}?${query}`, {
     headers: supabaseHeaders(env.SUPABASE_SERVICE_ROLE_KEY),
   });
   if (!response.ok) return null;
@@ -16,7 +24,7 @@ export async function supabaseSelect(env, table, query) {
 }
 
 export async function supabaseInsert(env, table, row) {
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/${table}`, {
+  const response = await fetch(`${requireSupabaseUrl(env)}/rest/v1/${table}`, {
     method: 'POST',
     headers: supabaseHeaders(env.SUPABASE_SERVICE_ROLE_KEY, {
       Prefer: 'return=representation',
@@ -32,7 +40,7 @@ export async function supabaseInsert(env, table, row) {
 }
 
 export async function supabaseUpdate(env, table, query, patch) {
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/${table}?${query}`, {
+  const response = await fetch(`${requireSupabaseUrl(env)}/rest/v1/${table}?${query}`, {
     method: 'PATCH',
     headers: supabaseHeaders(env.SUPABASE_SERVICE_ROLE_KEY, {
       Prefer: 'return=representation',
@@ -45,7 +53,7 @@ export async function supabaseUpdate(env, table, query, patch) {
 }
 
 export async function supabaseDelete(env, table, query) {
-  const response = await fetch(`${env.SUPABASE_URL}/rest/v1/${table}?${query}`, {
+  const response = await fetch(`${requireSupabaseUrl(env)}/rest/v1/${table}?${query}`, {
     method: 'DELETE',
     headers: supabaseHeaders(env.SUPABASE_SERVICE_ROLE_KEY),
   });

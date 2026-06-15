@@ -4,6 +4,11 @@ compatibility_flags = ["nodejs_compat"]
 main = "./worker/index.mjs"
 workers_dev = true
 
+[vars]
+SUPABASE_URL = "https://hxtlrwibkdyirnvejfor.supabase.co"
+CLOUDFLARE_ACCOUNT_ID = "be90b9dfc7dfcf09a335189f4499ef4f"
+CLOUDFLARE_STREAM_CUSTOMER_CODE = "y6sra3bzw4qq91m8"
+
 [assets]
 directory = "./dist"
 binding = "ASSETS"

@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Copy, Check, Trash2, Eye, Globe, ChevronDown, ChevronUp, Code2 } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
-import { fetchUserEmbeds, fetchUserStreamKeys } from '@/lib/subscription';
+import { fetchUserEmbeds } from '@/lib/subscription';
+import { fetchStreamKeys } from '@/lib/stream-keys-api';
 import {
   buildEmbedIframeHtml,
   createEmbedInstance,
@@ -58,20 +59,51 @@ export default function EmbedManager() {
   const [copiedId, setCopiedId] = useState(null);
   const [newEmbed, setNewEmbed] = useState({
     name: '',
-    video_source_type: 'youtube',
+    video_source_type: 'rtmp',
     video_source_url: '',
     stream_key_id: '',
   });
 
   useEffect(() => {
     if (!user?.id) return;
-    Promise.all([fetchUserEmbeds(user.id), fetchUserStreamKeys(user.id)])
+    Promise.all([fetchUserEmbeds(user.id), fetchStreamKeys()])
       .then(([embedRows, keyRows]) => {
+        const activeKeys = keyRows.filter((k) => k.status === 'active');
         setEmbeds(embedRows);
-        setStreamKeys(keyRows.filter((k) => k.status === 'active'));
+        setStreamKeys(activeKeys);
+        if (activeKeys.length > 0) {
+          setNewEmbed((prev) => ({
+            ...prev,
+            video_source_type: 'rtmp',
+            stream_key_id: prev.stream_key_id || activeKeys[0].id,
+          }));
+        }
+      })
+      .catch(() => {
+        setStreamKeys([]);
       })
       .finally(() => setLoading(false));
   }, [user?.id]);
+
+  const createHint = (() => {
+    if (!newEmbed.name.trim()) {
+      return 'Step 1: Enter an embed name in the field above (e.g. Homepage Player).';
+    }
+    if (newEmbed.video_source_type === 'rtmp') {
+      if (streamKeys.length === 0) {
+        return 'Create a stream key first on the Stream Keys page.';
+      }
+      if (!newEmbed.stream_key_id) {
+        return 'Select which stream key powers this embed.';
+      }
+    }
+    if (newEmbed.video_source_type === 'youtube' && !newEmbed.video_source_url.trim()) {
+      return 'Paste a YouTube video or live URL.';
+    }
+    return null;
+  })();
+
+  const canCreate = !creating && !createHint;
 
   const create = async () => {
     if (!newEmbed.name.trim()) return;
@@ -94,7 +126,6 @@ export default function EmbedManager() {
     setCreating(true);
     try {
       const embed = await createEmbedInstance({
-        userId: user.id,
         name: newEmbed.name,
         videoSourceType: newEmbed.video_source_type,
         videoSourceUrl: newEmbed.video_source_url,
@@ -162,47 +193,84 @@ export default function EmbedManager() {
 
       <div className="bg-card rounded-2xl border border-border/50 p-4 space-y-3">
         <p className="text-sm font-semibold text-foreground">Create New Embed</p>
-        <input
-          value={newEmbed.name}
-          onChange={(e) => setNewEmbed((prev) => ({ ...prev, name: e.target.value }))}
-          placeholder="Embed name (e.g. Homepage Player)..."
-          className="w-full bg-secondary/50 border border-border/50 rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/50"
-        />
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold text-foreground" htmlFor="embed-name">
+            1. Embed name
+          </label>
+          <input
+            id="embed-name"
+            value={newEmbed.name}
+            onChange={(e) => setNewEmbed((prev) => ({ ...prev, name: e.target.value }))}
+            placeholder="Homepage Player, Sunday Service, etc."
+            className="w-full bg-secondary/50 border border-border/50 rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/50"
+          />
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <select
-            value={newEmbed.video_source_type}
-            onChange={(e) => setNewEmbed((prev) => ({ ...prev, video_source_type: e.target.value }))}
-            className="bg-secondary/50 border border-border/50 rounded-xl px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50"
-          >
-            <option value="youtube">YouTube</option>
-            <option value="rtmp">RTMP Stream</option>
-          </select>
-          {newEmbed.video_source_type === 'rtmp' ? (
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-foreground" htmlFor="embed-source-type">
+              2. Source type
+            </label>
             <select
-              value={newEmbed.stream_key_id}
-              onChange={(e) => setNewEmbed((prev) => ({ ...prev, stream_key_id: e.target.value }))}
-              className="bg-secondary/50 border border-border/50 rounded-xl px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50"
+              id="embed-source-type"
+              value={newEmbed.video_source_type}
+              onChange={(e) => {
+                const nextType = e.target.value;
+                setNewEmbed((prev) => ({
+                  ...prev,
+                  video_source_type: nextType,
+                  stream_key_id:
+                    nextType === 'rtmp'
+                      ? prev.stream_key_id || streamKeys[0]?.id || ''
+                      : prev.stream_key_id,
+                }));
+              }}
+              className="w-full bg-secondary/50 border border-border/50 rounded-xl px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50"
             >
-              <option value="">Select stream key...</option>
-              {streamKeys.map((key) => (
-                <option key={key.id} value={key.id}>
-                  {key.stream_name}
-                </option>
-              ))}
+              <option value="youtube">YouTube</option>
+              <option value="rtmp">RTMP Stream</option>
             </select>
+          </div>
+          {newEmbed.video_source_type === 'rtmp' ? (
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-foreground" htmlFor="embed-stream-key">
+                3. Stream key
+              </label>
+              <select
+                id="embed-stream-key"
+                value={newEmbed.stream_key_id}
+                onChange={(e) => setNewEmbed((prev) => ({ ...prev, stream_key_id: e.target.value }))}
+                className="w-full bg-secondary/50 border border-border/50 rounded-xl px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50"
+              >
+                <option value="">Select stream key...</option>
+                {streamKeys.map((key) => (
+                  <option key={key.id} value={key.id}>
+                    {key.stream_name || 'Untitled stream'}
+                  </option>
+                ))}
+              </select>
+            </div>
           ) : (
-            <input
-              value={newEmbed.video_source_url}
-              onChange={(e) => setNewEmbed((prev) => ({ ...prev, video_source_url: e.target.value }))}
-              placeholder="YouTube URL..."
-              className="bg-secondary/50 border border-border/50 rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/50"
-            />
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-foreground" htmlFor="embed-youtube-url">
+                3. YouTube URL
+              </label>
+              <input
+                id="embed-youtube-url"
+                value={newEmbed.video_source_url}
+                onChange={(e) => setNewEmbed((prev) => ({ ...prev, video_source_url: e.target.value }))}
+                placeholder="https://youtube.com/watch?v=..."
+                className="w-full bg-secondary/50 border border-border/50 rounded-xl px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/50"
+              />
+            </div>
           )}
         </div>
+        {createHint && (
+          <p className="text-xs text-muted-foreground">{createHint}</p>
+        )}
         <button
           type="button"
           onClick={create}
-          disabled={creating || !newEmbed.name.trim()}
+          disabled={!canCreate}
           className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
         >
           {creating ? (
