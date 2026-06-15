@@ -10,7 +10,7 @@ import AuthLayout from "@/components/AuthLayout";
 import GoogleIcon from "@/components/GoogleIcon";
 import { toast } from "@/components/ui/use-toast";
 
-const authRedirectTo = () => `${window.location.origin}/`;
+const authRedirectTo = () => `${window.location.origin}/dashboard`;
 
 export default function Register() {
   const [email, setEmail] = useState("");
@@ -37,7 +37,7 @@ export default function Register() {
       });
       if (error) throw error;
       if (data.session) {
-        window.location.href = "/";
+        window.location.href = "/dashboard";
         return;
       }
       setShowVerify(true);
@@ -58,7 +58,7 @@ export default function Register() {
         type: "signup",
       });
       if (error) throw error;
-      window.location.href = "/";
+      window.location.href = "/dashboard";
     } catch (err) {
       setError(err.message || "Invalid verification code");
     } finally {

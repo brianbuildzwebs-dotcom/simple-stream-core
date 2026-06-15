@@ -6,13 +6,145 @@ import {
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
+
+async function verifySupabaseUser(request, env) {
+  const authHeader = request.headers.get('Authorization') || '';
+  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+  if (!token || !env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) {
+    return null;
+  }
+
+  const response = await fetch(`${env.SUPABASE_URL}/auth/v1/user`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      apikey: env.SUPABASE_ANON_KEY,
+    },
+  });
+
+  if (!response.ok) return null;
+  const user = await response.json();
+  return user?.id ? user : null;
+}
+
+async function fetchSubscriptionTier(tierId, env) {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
+    return null;
+  }
+
+  const response = await fetch(
+    `${env.SUPABASE_URL}/rest/v1/subscription_tiers?id=eq.${tierId}&is_active=eq.true&select=*`,
+    {
+      headers: {
+        apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+      },
+    }
+  );
+
+  if (!response.ok) return null;
+  const tiers = await response.json();
+  return tiers?.[0] ?? null;
+}
+
+async function createStripeCheckoutSession({ tier, user, successUrl, cancelUrl }, env) {
+  if (!env.STRIPE_SECRET_KEY) {
+    throw new Error('Stripe is not configured');
+  }
+
+  const params = new URLSearchParams({
+    mode: 'subscription',
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+    client_reference_id: user.id,
+    'metadata[user_id]': user.id,
+    'metadata[tier_id]': tier.id,
+    'metadata[tier_name]': tier.name,
+    'subscription_data[metadata][user_id]': user.id,
+    'subscription_data[metadata][tier_id]': tier.id,
+  });
+
+  if (user.email) {
+    params.set('customer_email', user.email);
+  }
+
+  if (tier.stripe_price_id) {
+    params.set('line_items[0][price]', tier.stripe_price_id);
+    params.set('line_items[0][quantity]', '1');
+  } else {
+    params.set('line_items[0][price_data][currency]', 'usd');
+    params.set(
+      'line_items[0][price_data][unit_amount]',
+      String(Math.round(Number(tier.monthly_price) * 100))
+    );
+    params.set('line_items[0][price_data][recurring][interval]', 'month');
+    params.set('line_items[0][price_data][product_data][name]', `${tier.name} — Simple Streamz`);
+    params.set('line_items[0][quantity]', '1');
+  }
+
+  const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: params,
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.error?.message || 'Stripe checkout failed');
+  }
+
+  return payload;
+}
 
 const handler = {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    if (url.pathname === '/api/stripe/checkout') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: CORS });
+      }
+
+      if (request.method !== 'POST') {
+        return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
+      }
+
+      try {
+        const user = await verifySupabaseUser(request, env);
+        if (!user) {
+          return Response.json({ error: 'Unauthorized' }, { status: 401, headers: CORS });
+        }
+
+        const body = await request.json();
+        const { tierId, successUrl, cancelUrl } = body ?? {};
+        if (!tierId || !successUrl || !cancelUrl) {
+          return Response.json({ error: 'tierId, successUrl, and cancelUrl are required' }, { status: 400, headers: CORS });
+        }
+
+        const tier = await fetchSubscriptionTier(tierId, env);
+        if (!tier) {
+          return Response.json({ error: 'Subscription tier not found' }, { status: 404, headers: CORS });
+        }
+
+        const session = await createStripeCheckoutSession(
+          { tier, user, successUrl, cancelUrl },
+          env
+        );
+
+        return Response.json({ url: session.url, sessionId: session.id }, { headers: CORS });
+      } catch (error) {
+        Sentry.captureException(error);
+        return Response.json(
+          { error: error.message || 'checkout_failed' },
+          { status: 500, headers: CORS }
+        );
+      }
+    }
 
     if (url.pathname === '/api/youtube-live') {
       if (request.method === 'OPTIONS') {

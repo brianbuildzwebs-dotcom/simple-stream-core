@@ -1,0 +1,162 @@
+import React, { useState } from 'react';
+import { Outlet, Link, useLocation } from 'react-router-dom';
+import {
+  LayoutDashboard,
+  Radio,
+  Code2,
+  Crown,
+  LogOut,
+  Tv,
+  ChevronLeft,
+  ChevronRight,
+  Shield,
+  Menu,
+} from 'lucide-react';
+import { useAuth } from '@/lib/AuthContext';
+import { useSubscription } from '@/hooks/useSubscription';
+import { APP_NAME } from '@/lib/brand';
+
+const NAV = [
+  { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, exact: true },
+  { path: '/dashboard/streams', label: 'Stream Keys', icon: Radio },
+  { path: '/dashboard/embeds', label: 'Embed Manager', icon: Code2 },
+];
+
+export default function AppLayout() {
+  const { user, logout } = useAuth();
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const location = useLocation();
+  const { daysLeft, subscription } = useSubscription(user);
+
+  const isActive = (path, exact) =>
+    exact ? location.pathname === path : location.pathname.startsWith(path);
+
+  const SidebarInner = () => (
+    <>
+      <div className="flex items-center gap-3 p-4 border-b border-border/50 shrink-0">
+        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center shrink-0">
+          <Tv className="w-4 h-4 text-white" />
+        </div>
+        {!collapsed && (
+          <span className="font-bold text-foreground font-heading">{APP_NAME}</span>
+        )}
+      </div>
+
+      {!collapsed && subscription?.trial_active && daysLeft !== null && daysLeft <= 7 && (
+        <div
+          className={`mx-3 mt-3 px-3 py-2 rounded-lg text-xs font-medium border ${
+            daysLeft <= 2
+              ? 'bg-red-500/10 text-red-400 border-red-500/20'
+              : 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
+          }`}
+        >
+          {daysLeft} day{daysLeft !== 1 ? 's' : ''} left in trial
+        </div>
+      )}
+
+      <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+        {NAV.map((item) => (
+          <Link
+            key={item.path}
+            to={item.path}
+            onClick={() => setMobileOpen(false)}
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-sm font-medium ${
+              isActive(item.path, item.exact)
+                ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
+                : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+            }`}
+          >
+            <item.icon className="w-4 h-4 shrink-0" />
+            {!collapsed && <span>{item.label}</span>}
+          </Link>
+        ))}
+        {user?.role === 'admin' && (
+          <Link
+            to="/admin"
+            onClick={() => setMobileOpen(false)}
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-sm font-medium ${
+              location.pathname.startsWith('/admin')
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+            }`}
+          >
+            <Shield className="w-4 h-4 shrink-0" />
+            {!collapsed && <span>Admin Panel</span>}
+          </Link>
+        )}
+      </nav>
+
+      <div className="p-3 border-t border-border/50 space-y-1 shrink-0">
+        {!subscription?.is_paid && subscription?.payment_status !== 'free_admin' && (
+          <Link
+            to="/pricing"
+            onClick={() => setMobileOpen(false)}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-yellow-400 hover:bg-yellow-400/10 transition-all"
+          >
+            <Crown className="w-4 h-4 shrink-0" />
+            {!collapsed && <span>Upgrade Plan</span>}
+          </Link>
+        )}
+        <button
+          type="button"
+          onClick={() => logout('/')}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-all"
+        >
+          <LogOut className="w-4 h-4 shrink-0" />
+          {!collapsed && <span>Log Out</span>}
+        </button>
+      </div>
+    </>
+  );
+
+  return (
+    <div className="flex h-screen bg-background overflow-hidden">
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 z-40 lg:hidden"
+          onClick={() => setMobileOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 w-60 flex flex-col border-r border-border/50 bg-card transition-transform duration-300 lg:hidden ${
+          mobileOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <SidebarInner />
+      </aside>
+
+      <aside
+        className={`relative hidden lg:flex flex-col border-r border-border/50 bg-card transition-all duration-300 ${
+          collapsed ? 'w-16' : 'w-60'
+        }`}
+      >
+        <SidebarInner />
+        <button
+          type="button"
+          onClick={() => setCollapsed(!collapsed)}
+          className="absolute -right-3 top-16 z-10 w-6 h-6 rounded-full bg-card border border-border flex items-center justify-center text-muted-foreground hover:text-foreground shadow-md"
+        >
+          {collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />}
+        </button>
+      </aside>
+
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="lg:hidden flex items-center gap-3 px-4 py-3 border-b border-border/50 bg-card shrink-0">
+          <button type="button" onClick={() => setMobileOpen(!mobileOpen)}>
+            <Menu className="w-5 h-5 text-muted-foreground" />
+          </button>
+          <div className="w-6 h-6 rounded-md bg-gradient-to-br from-primary to-accent flex items-center justify-center">
+            <Tv className="w-3 h-3 text-white" />
+          </div>
+          <span className="font-bold text-sm font-heading">{APP_NAME}</span>
+        </div>
+        <main className="flex-1 overflow-auto">
+          <Outlet />
+        </main>
+      </div>
+    </div>
+  );
+}
