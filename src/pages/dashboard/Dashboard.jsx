@@ -55,7 +55,7 @@ export default function Dashboard() {
         <p className="text-sm text-muted-foreground mt-1">Here&apos;s your streaming overview.</p>
       </motion.div>
 
-      {!isPaid && user?.role !== 'admin' && (
+      {!isPaid && subscription && (
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
