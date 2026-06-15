@@ -13,6 +13,7 @@ import {
 } from '@/lib/fullscreen';
 
 import { Play } from 'lucide-react';
+import WatermarkOverlay from './WatermarkOverlay';
 
 export default function VideoPlayer({
   source,
@@ -21,6 +22,7 @@ export default function VideoPlayer({
   onViewerCountChange,
   isAdmin = false,
   settings = {},
+  watermark = null,
 }) {
   const videoRef = useRef(null);
   const containerRef = useRef(null);
@@ -313,6 +315,7 @@ export default function VideoPlayer({
       onTouchStart={showControls}
     >
       {renderContent()}
+      <WatermarkOverlay watermark={watermark} />
       {source && !isYoutube && !embed && (
         <PlayerToolsMenu videoRef={videoRef} visible={controlsVisible || !isPlaying} />
       )}
@@ -330,6 +333,7 @@ export default function VideoPlayer({
         onTouchStart={showControls}
       >
         {renderContent()}
+        <WatermarkOverlay watermark={watermark} />
         {source && !isYoutube && (
           <PlayerToolsMenu videoRef={videoRef} visible={controlsVisible || !isPlaying} />
         )}
@@ -388,6 +392,7 @@ export default function VideoPlayer({
         onTouchStart={showControls}
       >
         {renderContent()}
+        <WatermarkOverlay watermark={watermark} />
         {chatOverlayProps && <ChatOverlay {...chatOverlayProps} />}
         {videoControls}
       </div>

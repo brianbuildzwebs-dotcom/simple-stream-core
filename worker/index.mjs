@@ -3,10 +3,23 @@ import {
   resolvePlaylistBroadcasts,
   resolveVideoBroadcast,
 } from '../functions/_shared/youtube-innertube.mjs';
+import {
+  createCloudflareLiveInput,
+  deleteCloudflareLiveInput,
+} from './_shared/cloudflare-stream.mjs';
+import { resolveEmbedConfig, recordEmbedView } from './_shared/embed-config.mjs';
+import {
+  countUserStreamKeys,
+  getUserStreamKeyLimit,
+  supabaseDelete,
+  supabaseInsert,
+  supabaseSelect,
+  supabaseUpdate,
+} from './_shared/supabase-admin.mjs';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
@@ -143,6 +156,180 @@ const handler = {
           { error: error.message || 'checkout_failed' },
           { status: 500, headers: CORS }
         );
+      }
+    }
+
+    if (url.pathname === '/api/stream-keys') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: CORS });
+      }
+
+      try {
+        const user = await verifySupabaseUser(request, env);
+        if (!user) {
+          return Response.json({ error: 'Unauthorized' }, { status: 401, headers: CORS });
+        }
+
+        if (request.method === 'POST') {
+          const body = await request.json().catch(() => ({}));
+          const streamName = (body.stream_name || 'My Stream').trim();
+          if (!streamName) {
+            return Response.json({ error: 'stream_name is required' }, { status: 400, headers: CORS });
+          }
+
+          const [limit, count] = await Promise.all([
+            getUserStreamKeyLimit(env, user.id),
+            countUserStreamKeys(env, user.id),
+          ]);
+
+          if (count >= limit) {
+            return Response.json(
+              { error: `Stream key limit reached (${limit}). Upgrade your plan for more.` },
+              { status: 403, headers: CORS }
+            );
+          }
+
+          const cf = await createCloudflareLiveInput(env, streamName);
+          const streamKey = await supabaseInsert(env, 'stream_keys', {
+            user_id: user.id,
+            stream_name: streamName,
+            key_value: cf.key_value,
+            rtmp_ingest_url: cf.rtmp_ingest_url,
+            cloudflare_input_id: cf.cloudflare_input_id,
+            hls_playback_url: cf.hls_playback_url,
+            status: 'active',
+            is_live: false,
+            viewer_count: 0,
+            total_view_hours: 0,
+          });
+
+          return Response.json({ stream_key: streamKey }, { headers: CORS });
+        }
+
+        if (request.method === 'DELETE') {
+          const keyId = url.searchParams.get('id');
+          if (!keyId) {
+            return Response.json({ error: 'id is required' }, { status: 400, headers: CORS });
+          }
+
+          const rows = await supabaseSelect(
+            env,
+            'stream_keys',
+            `id=eq.${keyId}&user_id=eq.${user.id}&select=*`
+          );
+          const existing = rows?.[0];
+          if (!existing) {
+            return Response.json({ error: 'Stream key not found' }, { status: 404, headers: CORS });
+          }
+
+          await deleteCloudflareLiveInput(env, existing.cloudflare_input_id);
+          await supabaseDelete(env, 'stream_keys', `id=eq.${keyId}`);
+          return Response.json({ success: true }, { headers: CORS });
+        }
+
+        return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
+      } catch (error) {
+        Sentry.captureException(error);
+        return Response.json(
+          { error: error.message || 'stream_key_failed' },
+          { status: 500, headers: CORS }
+        );
+      }
+    }
+
+    if (url.pathname === '/api/stream-keys/refresh') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: CORS });
+      }
+      if (request.method !== 'POST') {
+        return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
+      }
+
+      try {
+        const user = await verifySupabaseUser(request, env);
+        if (!user) {
+          return Response.json({ error: 'Unauthorized' }, { status: 401, headers: CORS });
+        }
+
+        const body = await request.json().catch(() => ({}));
+        const keyId = body.id;
+        if (!keyId) {
+          return Response.json({ error: 'id is required' }, { status: 400, headers: CORS });
+        }
+
+        const rows = await supabaseSelect(
+          env,
+          'stream_keys',
+          `id=eq.${keyId}&user_id=eq.${user.id}&select=*`
+        );
+        const existing = rows?.[0];
+        if (!existing) {
+          return Response.json({ error: 'Stream key not found' }, { status: 404, headers: CORS });
+        }
+
+        await deleteCloudflareLiveInput(env, existing.cloudflare_input_id);
+        const cf = await createCloudflareLiveInput(env, existing.stream_name || 'My Stream');
+        const updated = await supabaseUpdate(env, 'stream_keys', `id=eq.${keyId}`, {
+          key_value: cf.key_value,
+          rtmp_ingest_url: cf.rtmp_ingest_url,
+          cloudflare_input_id: cf.cloudflare_input_id,
+          hls_playback_url: cf.hls_playback_url,
+          status: 'active',
+        });
+
+        return Response.json({ stream_key: updated }, { headers: CORS });
+      } catch (error) {
+        Sentry.captureException(error);
+        return Response.json(
+          { error: error.message || 'stream_key_refresh_failed' },
+          { status: 500, headers: CORS }
+        );
+      }
+    }
+
+    if (url.pathname === '/api/embed/config') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: CORS });
+      }
+      if (request.method !== 'GET') {
+        return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
+      }
+
+      try {
+        const code = url.searchParams.get('code');
+        if (!code) {
+          return Response.json({ error: 'code is required' }, { status: 400, headers: CORS });
+        }
+
+        const referer = request.headers.get('referer') || request.headers.get('origin') || '';
+        const result = await resolveEmbedConfig(env, code, referer);
+        if (result.error) {
+          return Response.json({ error: result.error }, { status: result.status, headers: CORS });
+        }
+        return Response.json(result.body, { headers: CORS });
+      } catch (error) {
+        Sentry.captureException(error);
+        return Response.json({ error: 'embed_config_failed' }, { status: 500, headers: CORS });
+      }
+    }
+
+    if (url.pathname === '/api/embed/view') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: CORS });
+      }
+      if (request.method !== 'POST') {
+        return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
+      }
+
+      try {
+        const body = await request.json().catch(() => ({}));
+        if (body.tracking_code) {
+          await recordEmbedView(env, body.tracking_code);
+        }
+        return Response.json({ success: true }, { headers: CORS });
+      } catch (error) {
+        Sentry.captureException(error);
+        return Response.json({ error: 'embed_view_failed' }, { status: 500, headers: CORS });
       }
     }
 

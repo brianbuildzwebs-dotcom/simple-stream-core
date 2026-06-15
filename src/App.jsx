@@ -11,7 +11,8 @@ import Pricing from '@/pages/Pricing';
 import Paywall from '@/pages/Paywall';
 import AdminDashboard from '@/pages/AdminDashboard';
 import Dashboard from '@/pages/dashboard/Dashboard';
-import ComingSoon from '@/pages/dashboard/ComingSoon';
+import StreamKeys from '@/pages/dashboard/StreamKeys';
+import EmbedManager from '@/pages/dashboard/EmbedManager';
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
 import ForgotPassword from '@/pages/ForgotPassword';
@@ -37,24 +38,8 @@ export default function App() {
         <Route element={<DashboardRoute />}>
           <Route path="/dashboard" element={<AppLayout />}>
             <Route index element={<Dashboard />} />
-            <Route
-              path="streams"
-              element={
-                <ComingSoon
-                  title="Stream Keys"
-                  description="RTMP key generation and Cloudflare Stream integration ship in Phase 2."
-                />
-              }
-            />
-            <Route
-              path="embeds"
-              element={
-                <ComingSoon
-                  title="Embed Manager"
-                  description="Tracked embed codes pointing at the Simple Streamz player ship in Phase 2."
-                />
-              }
-            />
+            <Route path="streams" element={<StreamKeys />} />
+            <Route path="embeds" element={<EmbedManager />} />
           </Route>
         </Route>
 
