@@ -12,7 +12,7 @@ export default function Pricing() {
   const [tiers, setTiers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [checkoutTierId, setCheckoutTierId] = useState(null);
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoadingAuth, authChecked } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -21,6 +21,10 @@ export default function Pricing() {
       .catch(() => setTiers([]))
       .finally(() => setLoading(false));
   }, []);
+
+  const handleStartTrial = () => {
+    navigate(isAuthenticated ? '/dashboard' : '/register');
+  };
 
   const handleTierAction = async (tier) => {
     if (!isAuthenticated) {
@@ -117,19 +121,30 @@ export default function Pricing() {
                     <FeatureRow key={feature} label={feature} />
                   ))}
                 </div>
-                {isAuthenticated ? (
-                  <button
-                    type="button"
-                    onClick={() => handleTierAction(tier)}
-                    disabled={checkoutTierId === tier.id}
-                    className={`block w-full text-center py-3 rounded-xl font-semibold text-sm transition-all disabled:opacity-60 ${
-                      tier.is_popular
-                        ? 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/20'
-                        : 'bg-secondary text-foreground hover:bg-secondary/80 border border-border'
-                    }`}
-                  >
-                    {checkoutTierId === tier.id ? 'Redirecting…' : 'Upgrade with Stripe'}
-                  </button>
+                {isLoadingAuth || !authChecked ? (
+                  <div className="py-3 text-center text-sm text-muted-foreground">Loading…</div>
+                ) : isAuthenticated ? (
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={handleStartTrial}
+                      className={`block w-full text-center py-3 rounded-xl font-semibold text-sm transition-all ${
+                        tier.is_popular
+                          ? 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/20'
+                          : 'bg-secondary text-foreground hover:bg-secondary/80 border border-border'
+                      }`}
+                    >
+                      {tier.cta_label || 'Start Free Trial'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleTierAction(tier)}
+                      disabled={checkoutTierId === tier.id}
+                      className="block w-full text-center py-2 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground transition-all disabled:opacity-60"
+                    >
+                      {checkoutTierId === tier.id ? 'Redirecting…' : 'Upgrade with Stripe →'}
+                    </button>
+                  </div>
                 ) : (
                   <Link
                     to="/register"

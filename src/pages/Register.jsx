@@ -1,6 +1,7 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/lib/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,6 +14,7 @@ import { toast } from "@/components/ui/use-toast";
 const authRedirectTo = () => `${window.location.origin}/dashboard`;
 
 export default function Register() {
+  const { isAuthenticated, isLoadingAuth, authChecked } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -20,6 +22,10 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const [showVerify, setShowVerify] = useState(false);
   const [otpCode, setOtpCode] = useState("");
+
+  if (!isLoadingAuth && authChecked && isAuthenticated) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault();

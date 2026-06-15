@@ -116,10 +116,11 @@ export default function Home() {
             className="flex flex-col sm:flex-row gap-3 justify-center"
           >
             <Link
-              to="/register"
+              to={isAuthenticated ? '/dashboard' : '/register'}
               className="flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-colors shadow-lg shadow-primary/20"
             >
-              <Play className="w-4 h-4" /> Start 10-Day Free Trial
+              <Play className="w-4 h-4" />{' '}
+              {isAuthenticated ? 'Go to Dashboard' : 'Start 10-Day Free Trial'}
             </Link>
             <Link
               to="/pricing"
