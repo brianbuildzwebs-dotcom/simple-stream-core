@@ -1,17 +1,96 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Copy, Check, Trash2, Eye, Globe, ChevronDown, ChevronUp, Code2 } from 'lucide-react';
+import {
+  Plus,
+  Copy,
+  Check,
+  Trash2,
+  Eye,
+  Globe,
+  ChevronDown,
+  ChevronUp,
+  Code2,
+  Radio,
+  ExternalLink,
+} from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
 import { fetchUserEmbeds } from '@/lib/subscription';
 import { fetchStreamKeys } from '@/lib/stream-keys-api';
 import {
   buildEmbedIframeHtml,
+  buildEmbedUrl,
   createEmbedInstance,
   deleteEmbedInstance,
   updateEmbedInstance,
 } from '@/lib/embeds';
 import WatermarkConfigurator from '@/components/embeds/WatermarkConfigurator';
 import { toast } from '@/components/ui/use-toast';
+
+function streamKeyLabel(streamKeys, streamKeyId) {
+  if (!streamKeyId) return 'No stream key linked';
+  const key = streamKeys.find((k) => k.id === streamKeyId);
+  return key?.stream_name || 'Untitled stream';
+}
+
+function StreamKeyEditor({ embed, streamKeys, onSave }) {
+  const [streamKeyId, setStreamKeyId] = useState(embed.stream_key_id || '');
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    setStreamKeyId(embed.stream_key_id || '');
+  }, [embed.stream_key_id]);
+
+  const save = () => {
+    if (!streamKeyId) return;
+    onSave(streamKeyId);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const orphaned = !embed.stream_key_id;
+
+  return (
+    <div className="space-y-2">
+      <label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+        <Radio className="w-3.5 h-3.5 text-muted-foreground" /> Stream Key
+      </label>
+      <p className="text-[11px] text-muted-foreground">
+        Switch which live input powers this embed. Your iframe code and tracking code stay the same.
+      </p>
+      {orphaned && (
+        <p className="text-[11px] text-amber-400">
+          This embed lost its stream key (it may have been deleted). Select an active key below.
+        </p>
+      )}
+      {streamKeys.length === 0 ? (
+        <p className="text-xs text-muted-foreground">Create a stream key on the Stream Keys page first.</p>
+      ) : (
+        <div className="flex gap-2">
+          <select
+            value={streamKeyId}
+            onChange={(e) => setStreamKeyId(e.target.value)}
+            className="flex-1 bg-secondary/50 border border-border/50 rounded-xl px-3 py-2 text-xs text-foreground outline-none focus:border-primary/50"
+          >
+            <option value="">Select stream key...</option>
+            {streamKeys.map((key) => (
+              <option key={key.id} value={key.id}>
+                {key.stream_name || 'Untitled stream'}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={save}
+            disabled={!streamKeyId || streamKeyId === embed.stream_key_id}
+            className="px-3 py-2 rounded-xl bg-secondary text-xs font-medium text-foreground hover:bg-secondary/80 transition-colors disabled:opacity-50"
+          >
+            {saved ? <Check className="w-3.5 h-3.5 text-green-400" /> : 'Save'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function DomainsEditor({ embed, onSave }) {
   const [domains, setDomains] = useState((embed.allowed_domains || []).join(', '));
@@ -132,7 +211,12 @@ export default function EmbedManager() {
         streamKeyId: newEmbed.stream_key_id || null,
       });
       setEmbeds((prev) => [embed, ...prev]);
-      setNewEmbed({ name: '', video_source_type: 'youtube', video_source_url: '', stream_key_id: '' });
+      setNewEmbed({
+        name: '',
+        video_source_type: 'rtmp',
+        video_source_url: '',
+        stream_key_id: streamKeys[0]?.id || '',
+      });
       setExpandedId(embed.id);
       toast({ title: 'Embed created!' });
     } catch (error) {
@@ -303,8 +387,16 @@ export default function EmbedManager() {
                 <div className="p-4 flex items-center justify-between gap-3">
                   <div>
                     <p className="font-semibold text-foreground">{embed.name}</p>
-                    <div className="flex items-center gap-3 mt-1">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
                       <span className="text-xs text-muted-foreground font-mono">{embed.tracking_code}</span>
+                      <span className="text-xs text-muted-foreground capitalize">
+                        {embed.video_source_type || 'youtube'}
+                      </span>
+                      {embed.video_source_type === 'rtmp' && (
+                        <span className="text-xs text-muted-foreground">
+                          {streamKeyLabel(streamKeys, embed.stream_key_id)}
+                        </span>
+                      )}
                       <span className="flex items-center gap-1 text-xs text-muted-foreground">
                         <Eye className="w-3 h-3" />
                         {embed.total_views || 0} views
@@ -312,6 +404,15 @@ export default function EmbedManager() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
+                    <a
+                      href={buildEmbedUrl(embed.tracking_code)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                      title="Preview embed"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
                     <button
                       type="button"
                       onClick={() => copyEmbed(embed)}
@@ -346,6 +447,13 @@ export default function EmbedManager() {
                       className="border-t border-border/50"
                     >
                       <div className="p-4 space-y-4">
+                        {embed.video_source_type === 'rtmp' && (
+                          <StreamKeyEditor
+                            embed={embed}
+                            streamKeys={streamKeys}
+                            onSave={(streamKeyId) => updateEmbed(embed.id, { stream_key_id: streamKeyId })}
+                          />
+                        )}
                         <WatermarkConfigurator embed={embed} onSave={(data) => updateEmbed(embed.id, data)} />
                         <DomainsEditor embed={embed} onSave={(domains) => updateEmbed(embed.id, { allowed_domains: domains })} />
                       </div>
