@@ -1,6 +1,8 @@
 import {
   buildHlsPlaybackUrl,
   enableCloudflareLiveInputPlayback,
+  fetchCloudflareLiveInputStatus,
+  fetchLatestCloudflareRecording,
 } from './cloudflare-stream.mjs';
 import { resolveOwnerWatermarkPolicy } from './subscription-access.mjs';
 import { supabaseSelect, supabaseUpdate } from './supabase-admin.mjs';
@@ -147,12 +149,37 @@ export async function resolveEmbedConfig(env, trackingCode, referer, viewHost = 
       buildHlsPlaybackUrl(env.CLOUDFLARE_STREAM_CUSTOMER_CODE, key?.cloudflare_input_id) ||
       key?.hls_playback_url;
     if (hlsUrl && key?.key_value) {
+      const replayWhenOffline = embed.replay_when_offline !== false;
+      let playbackMode = 'holding';
+      let replayHlsUrl = null;
+
+      if (key.cloudflare_input_id) {
+        const [liveStatus, latestRecording] = await Promise.all([
+          fetchCloudflareLiveInputStatus(env, key.cloudflare_input_id),
+          replayWhenOffline
+            ? fetchLatestCloudflareRecording(env, key.cloudflare_input_id)
+            : Promise.resolve(null),
+        ]);
+
+        if (liveStatus.connected) {
+          playbackMode = 'live';
+        } else if (replayWhenOffline && latestRecording?.hlsUrl) {
+          playbackMode = 'replay';
+          replayHlsUrl = latestRecording.hlsUrl;
+        }
+      }
+
       source = {
         type: 'rtmp',
         provider: 'cloudflare',
         streamKey: key.key_value,
         hlsUrl,
-        url: hlsUrl,
+        replayHlsUrl,
+        playbackMode,
+        replayWhenOffline,
+        holdingTitle: embed.holding_title?.trim() || null,
+        holdingMessage: embed.holding_message?.trim() || null,
+        url: playbackMode === 'replay' && replayHlsUrl ? replayHlsUrl : hlsUrl,
         inputId: key.cloudflare_input_id,
         customerCode: env.CLOUDFLARE_STREAM_CUSTOMER_CODE,
         label: key.stream_name || embed.name,

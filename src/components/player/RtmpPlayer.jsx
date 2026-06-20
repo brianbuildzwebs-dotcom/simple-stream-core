@@ -17,6 +17,7 @@ const WAITING_FOR_FEED_BODY =
 const TAP_TO_JOIN_TITLE = 'Tap to join live stream';
 const TAP_TO_JOIN_BODY =
   'Video starts automatically when the feed goes live. Feel free to open chat while you wait.';
+const REPLAY_BADGE_LABEL = 'Service replay';
 const FEED_POLL_MS = 5000;
 const CONNECTING_TIMEOUT_MS = 8000;
 
@@ -31,6 +32,11 @@ function readNativeHlsLive(video) {
 
 function RtmpPlayer({
   hlsUrl,
+  replayHlsUrl = null,
+  playbackMode = 'holding',
+  replayWhenOffline = true,
+  holdingTitle = null,
+  holdingMessage = null,
   embed = false,
   viewerCount = 0,
   videoFit = 'contain',
@@ -54,16 +60,30 @@ function RtmpPlayer({
   };
   const hlsRef = useRef(null);
   const activeUrlRef = useRef('');
+  const isStreamLiveRef = useRef(false);
   const onPlayingChangeRef = useRef(onPlayingChange);
   const onLiveChangeRef = useRef(onLiveChange);
   const playbackUnlockedRef = useRef(false);
   const inIframe = typeof window !== 'undefined' && window.self !== window.top;
   const deferUntilClick = embed && inIframe;
 
+  const [playMode, setPlayMode] = useState(() => {
+    if (playbackMode === 'replay' && replayHlsUrl) return 'replay';
+    if (playbackMode === 'live') return 'live';
+    return 'holding';
+  });
   const [isStreamLive, setIsStreamLive] = useState(false);
+  const activeUrl =
+    playMode === 'replay' && replayHlsUrl ? replayHlsUrl : hlsUrl;
+  const isReplay = playMode === 'replay' && !!replayHlsUrl;
+  const waitingTitle = holdingTitle?.trim() || WAITING_FOR_FEED_TITLE;
+  const waitingBody = holdingMessage?.trim() || WAITING_FOR_FEED_BODY;
+  const tapTitle = holdingTitle?.trim() || TAP_TO_JOIN_TITLE;
+  const tapBody = holdingMessage?.trim() || TAP_TO_JOIN_BODY;
   const [status, setStatus] = useState(() => {
-    if (!hlsUrl) return STATUS.NO_URL;
+    if (!activeUrl) return STATUS.NO_URL;
     if (deferUntilClick) return STATUS.WAITING;
+    if (isReplay) return STATUS.LOADING;
     return STATUS.LOADING;
   });
   const [errorMsg, setErrorMsg] = useState('');
@@ -76,6 +96,7 @@ function RtmpPlayer({
   onLiveChangeRef.current = onLiveChange;
 
   const updateStreamLive = useCallback((live) => {
+    isStreamLiveRef.current = live;
     setIsStreamLive(live);
     onLiveChangeRef.current?.(live);
   }, []);
@@ -110,7 +131,29 @@ function RtmpPlayer({
     }
   }, []);
 
+  const switchToReplay = useCallback(() => {
+    if (!replayWhenOffline || !replayHlsUrl) return;
+    setPlayMode('replay');
+    setAwaitingClick(false);
+    setStatus(STATUS.LOADING);
+    setErrorMsg('');
+    updateStreamLive(false);
+  }, [replayHlsUrl, replayWhenOffline, updateStreamLive]);
+
   const markLive = useCallback(() => {
+    const video = internalVideoRef.current;
+    if (!video || video.paused) return;
+    clearConnectingTimer();
+    setAwaitingClick(false);
+    setPlayMode('live');
+    setStatus(STATUS.LIVE);
+    setErrorMsg('');
+    setIsVideoPlaying(true);
+    onPlayingChangeRef.current?.(true);
+    applyAudibleVolume(video);
+  }, [applyAudibleVolume, clearConnectingTimer]);
+
+  const markReplayPlaying = useCallback(() => {
     const video = internalVideoRef.current;
     if (!video || video.paused) return;
     clearConnectingTimer();
@@ -119,8 +162,9 @@ function RtmpPlayer({
     setErrorMsg('');
     setIsVideoPlaying(true);
     onPlayingChangeRef.current?.(true);
+    updateStreamLive(false);
     applyAudibleVolume(video);
-  }, [applyAudibleVolume, clearConnectingTimer]);
+  }, [applyAudibleVolume, clearConnectingTimer, updateStreamLive]);
 
   const scheduleConnectingTimeout = useCallback(() => {
     clearConnectingTimer();
@@ -193,7 +237,7 @@ function RtmpPlayer({
   );
 
   const attachHls = useCallback(
-    (video, url, { autoPlay = true } = {}) => {
+    (video, url, { autoPlay = true, vod = false } = {}) => {
       destroyHls();
       activeUrlRef.current = url;
 
@@ -206,24 +250,36 @@ function RtmpPlayer({
       };
 
       if (Hls.isSupported()) {
-        const hls = new Hls({
-          enableWorker: false,
-          lowLatencyMode: false,
-          liveDurationInfinity: true,
-          backBufferLength: 90,
-          maxBufferLength: 60,
-          maxMaxBufferLength: 120,
-          liveSyncDuration: 4,
-          liveMaxLatencyDuration: 12,
-          manifestLoadingMaxRetry: 12,
-          manifestLoadingRetryDelay: 1500,
-          levelLoadingMaxRetry: 6,
-          fragLoadingMaxRetry: 8,
-        });
+        const hls = new Hls(
+          vod
+            ? {
+                enableWorker: false,
+                maxBufferLength: 30,
+              }
+            : {
+                enableWorker: false,
+                lowLatencyMode: false,
+                liveDurationInfinity: true,
+                backBufferLength: 90,
+                maxBufferLength: 60,
+                maxMaxBufferLength: 120,
+                liveSyncDuration: 4,
+                liveMaxLatencyDuration: 12,
+                manifestLoadingMaxRetry: 12,
+                manifestLoadingRetryDelay: 1500,
+                levelLoadingMaxRetry: 6,
+                fragLoadingMaxRetry: 8,
+              }
+        );
         hlsRef.current = hls;
         hls.loadSource(url);
         hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          if (vod) {
+            updateStreamLive(false);
+            tryPlay();
+            return;
+          }
           const live = readHlsLiveFlag(hls);
           updateStreamLive(live);
           tryPlay();
@@ -232,11 +288,20 @@ function RtmpPlayer({
           }
         });
         hls.on(Hls.Events.LEVEL_UPDATED, (_event, { details }) => {
+          if (vod) return;
           if (typeof details?.live === 'boolean') {
+            const wasLive = isStreamLiveRef.current;
             updateStreamLive(details.live);
             if (details.live && playbackUnlockedRef.current && video.paused) {
               hls.startLoad(-1);
               tryStartPlayback(video);
+              return;
+            }
+            if (details.live) {
+              setPlayMode('live');
+            }
+            if (!details.live && wasLive && replayWhenOffline && replayHlsUrl) {
+              switchToReplay();
               return;
             }
             if (!details.live && playbackUnlockedRef.current && video.paused) {
@@ -246,6 +311,10 @@ function RtmpPlayer({
         });
         hls.on(Hls.Events.FRAG_BUFFERED, () => {
           if (video.readyState >= 2 && !video.paused) {
+            if (vod) {
+              markReplayPlaying();
+              return;
+            }
             markLive();
             return;
           }
@@ -284,6 +353,11 @@ function RtmpPlayer({
         video.addEventListener(
           'loadedmetadata',
           () => {
+            if (vod) {
+              updateStreamLive(false);
+              tryPlay();
+              return;
+            }
             const live = readNativeHlsLive(video);
             updateStreamLive(live);
             tryPlay();
@@ -294,10 +368,19 @@ function RtmpPlayer({
           { once: true }
         );
         video.addEventListener('durationchange', () => {
+          if (vod) return;
           const live = readNativeHlsLive(video);
+          const wasLive = isStreamLiveRef.current;
           updateStreamLive(live);
           if (live && playbackUnlockedRef.current && video.paused) {
             tryStartPlayback(video);
+            return;
+          }
+          if (live) {
+            setPlayMode('live');
+          }
+          if (!live && wasLive && replayWhenOffline && replayHlsUrl) {
+            switchToReplay();
             return;
           }
           if (!live && playbackUnlockedRef.current && video.paused) {
@@ -318,16 +401,27 @@ function RtmpPlayer({
       setStatus(STATUS.ERROR);
       setErrorMsg('HLS playback is not supported in this browser.');
     },
-    [deferUntilClick, destroyHls, markLive, markWaitingForFeed, tryStartPlayback, updateStreamLive]
+    [
+      deferUntilClick,
+      destroyHls,
+      markLive,
+      markReplayPlaying,
+      markWaitingForFeed,
+      replayHlsUrl,
+      replayWhenOffline,
+      switchToReplay,
+      tryStartPlayback,
+      updateStreamLive,
+    ]
   );
 
   const reloadFeed = useCallback(
     (video) => {
-      if (!video || !hlsUrl) return;
+      if (!video || !activeUrl) return;
 
-      const cacheBustedUrl = hlsUrl.includes('?')
-        ? `${hlsUrl}&_ssz=${Date.now()}`
-        : `${hlsUrl}?_ssz=${Date.now()}`;
+      const cacheBustedUrl = activeUrl.includes('?')
+        ? `${activeUrl}&_ssz=${Date.now()}`
+        : `${activeUrl}?_ssz=${Date.now()}`;
 
       if (hlsRef.current) {
         hlsRef.current.loadSource(cacheBustedUrl);
@@ -341,14 +435,26 @@ function RtmpPlayer({
         return;
       }
 
-      attachHls(video, hlsUrl, { autoPlay: true });
+      attachHls(video, activeUrl, { autoPlay: true, vod: isReplay });
     },
-    [attachHls, hlsUrl]
+    [activeUrl, attachHls, isReplay]
   );
+
+  useEffect(() => {
+    if (playbackMode === 'replay' && replayHlsUrl) {
+      setPlayMode('replay');
+      return;
+    }
+    if (playbackMode === 'live') {
+      setPlayMode('live');
+      return;
+    }
+    setPlayMode((current) => (current === 'replay' ? current : 'holding'));
+  }, [playbackMode, replayHlsUrl]);
 
   useLayoutEffect(() => {
     const video = internalVideoRef.current;
-    if (!video || !hlsUrl) {
+    if (!video || !activeUrl) {
       activeUrlRef.current = '';
       destroyHls();
       updateStreamLive(false);
@@ -356,15 +462,20 @@ function RtmpPlayer({
       setViewerReady(false);
       setIsVideoPlaying(false);
       clearConnectingTimer();
-      if (!hlsUrl) setStatus(STATUS.NO_URL);
+      if (!activeUrl) setStatus(STATUS.NO_URL);
       return undefined;
     }
 
-    if (activeUrlRef.current === hlsUrl && hlsRef.current) {
+    if (activeUrlRef.current === activeUrl && hlsRef.current) {
       return undefined;
     }
 
-    if (deferUntilClick) {
+    if (deferUntilClick && !isReplay) {
+      setAwaitingClick(true);
+      playbackUnlockedRef.current = false;
+      setViewerReady(false);
+      setIsVideoPlaying(false);
+    } else if (deferUntilClick && isReplay) {
       setAwaitingClick(true);
       playbackUnlockedRef.current = false;
       setViewerReady(false);
@@ -373,13 +484,17 @@ function RtmpPlayer({
 
     setStatus(STATUS.LOADING);
     setErrorMsg('');
-    attachHls(video, hlsUrl, { autoPlay: !deferUntilClick });
+    attachHls(video, activeUrl, { autoPlay: !deferUntilClick, vod: isReplay });
 
     const onPlaying = () => {
       setIsVideoPlaying(true);
       onPlayingChangeRef.current?.(true);
       if (playbackUnlockedRef.current) {
-        markLive();
+        if (isReplay) {
+          markReplayPlaying();
+        } else {
+          markLive();
+        }
       }
     };
     const onPausing = () => {
@@ -397,36 +512,41 @@ function RtmpPlayer({
       activeUrlRef.current = '';
     };
   }, [
-    hlsUrl,
+    activeUrl,
     deferUntilClick,
     attachHls,
     destroyHls,
+    isReplay,
     updateStreamLive,
     markLive,
+    markReplayPlaying,
     markWaitingForFeed,
     clearConnectingTimer,
   ]);
 
   const handleStartClick = useCallback(() => {
     const video = internalVideoRef.current;
-    if (!video || !hlsUrl) return;
+    if (!video || !activeUrl) return;
 
     setAwaitingClick(false);
     setStatus(STATUS.LOADING);
     setErrorMsg('');
     unlockPlayback(video);
-    scheduleConnectingTimeout();
+    if (!isReplay) {
+      scheduleConnectingTimeout();
+    }
 
-    if (!hlsRef.current || activeUrlRef.current !== hlsUrl) {
-      attachHls(video, hlsUrl, { autoPlay: true });
+    if (!hlsRef.current || activeUrlRef.current !== activeUrl) {
+      attachHls(video, activeUrl, { autoPlay: true, vod: isReplay });
       return;
     }
 
     reloadFeed(video);
     tryStartPlayback(video);
   }, [
+    activeUrl,
     attachHls,
-    hlsUrl,
+    isReplay,
     reloadFeed,
     scheduleConnectingTimeout,
     tryStartPlayback,
@@ -434,7 +554,7 @@ function RtmpPlayer({
   ]);
 
   useEffect(() => {
-    if (!viewerReady || !hlsUrl) return undefined;
+    if (!viewerReady || !hlsUrl || isReplay) return undefined;
 
     const pollForLiveFeed = () => {
       const video = internalVideoRef.current;
@@ -452,7 +572,7 @@ function RtmpPlayer({
       window.clearTimeout(kickoff);
       window.clearInterval(interval);
     };
-  }, [viewerReady, hlsUrl, markWaitingForFeed, reloadFeed, tryStartPlayback]);
+  }, [viewerReady, hlsUrl, isReplay, markWaitingForFeed, reloadFeed, tryStartPlayback]);
 
   useEffect(() => {
     onUserStartRequiredChange?.(deferUntilClick && awaitingClick);
@@ -479,7 +599,11 @@ function RtmpPlayer({
 
   const showTapToPlay = deferUntilClick && awaitingClick;
   const showWaitingOverlay =
-    viewerReady && !showTapToPlay && status !== STATUS.ERROR && !isVideoPlaying;
+    !isReplay &&
+    viewerReady &&
+    !showTapToPlay &&
+    status !== STATUS.ERROR &&
+    !isVideoPlaying;
   const showLoadingOverlay =
     viewerReady && !showTapToPlay && !showWaitingOverlay && status === STATUS.LOADING;
 
@@ -503,8 +627,10 @@ function RtmpPlayer({
             <span className="embed-tap-play-btn mb-3 flex items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95">
               <Play className="ml-0.5" />
             </span>
-            <span className="embed-tap-play-title font-medium">{TAP_TO_JOIN_TITLE}</span>
-            <span className="embed-tap-play-subtitle mt-2 text-white/65">{TAP_TO_JOIN_BODY}</span>
+            <span className="embed-tap-play-title font-medium">{isReplay ? 'Tap to watch replay' : tapTitle}</span>
+            <span className="embed-tap-play-subtitle mt-2 text-white/65">
+              {isReplay ? 'Watch the most recent service recording.' : tapBody}
+            </span>
           </button>
         </div>
       )}
@@ -512,8 +638,8 @@ function RtmpPlayer({
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/80 px-6">
           <div className="max-w-sm text-center text-white">
             <Radio className="mx-auto mb-3 h-9 w-9 text-primary" />
-            <p className="text-base font-semibold">{WAITING_FOR_FEED_TITLE}</p>
-            <p className="mt-2 text-sm leading-relaxed text-white/70">{WAITING_FOR_FEED_BODY}</p>
+            <p className="text-base font-semibold">{waitingTitle}</p>
+            <p className="mt-2 text-sm leading-relaxed text-white/70">{waitingBody}</p>
             <p className="mt-3 text-xs text-white/45">Checking for live feed every few seconds…</p>
           </div>
         </div>
@@ -543,6 +669,11 @@ function RtmpPlayer({
       )}
       {status === STATUS.LIVE && isStreamLive && (
         <LiveBadge viewerCount={viewerCount} />
+      )}
+      {status === STATUS.LIVE && isReplay && isVideoPlaying && (
+        <div className="absolute left-3 top-3 z-30 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">
+          {REPLAY_BADGE_LABEL}
+        </div>
       )}
     </div>
   );

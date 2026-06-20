@@ -324,6 +324,11 @@ export default function VideoPlayer({
       return (
         <RtmpPlayer
           hlsUrl={source.hlsUrl}
+          replayHlsUrl={source.replayHlsUrl}
+          playbackMode={source.playbackMode}
+          replayWhenOffline={source.replayWhenOffline !== false}
+          holdingTitle={source.holdingTitle}
+          holdingMessage={source.holdingMessage}
           embed={embed}
           viewerCount={viewerCount}
           videoRef={videoRef}

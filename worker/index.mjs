@@ -76,6 +76,9 @@ const EMBED_PATCH_FIELDS = new Set([
   'watermark_opacity',
   'is_active',
   'chat_enabled',
+  'holding_title',
+  'holding_message',
+  'replay_when_offline',
 ]);
 
 async function assertUserStreamKey(env, userId, streamKeyId) {

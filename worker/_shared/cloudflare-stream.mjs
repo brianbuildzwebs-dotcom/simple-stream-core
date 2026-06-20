@@ -24,6 +24,68 @@ export function buildHlsPlaybackUrl(customerCode, inputId) {
   return `https://customer-${customerCode}.cloudflarestream.com/${inputId}/manifest/video.m3u8`;
 }
 
+export function buildRecordingHlsPlaybackUrl(customerCode, videoUid) {
+  if (!customerCode || !videoUid) return null;
+  return `https://customer-${customerCode}.cloudflarestream.com/${videoUid}/manifest/video.m3u8`;
+}
+
+export function pickLatestReadyRecording(videos) {
+  if (!Array.isArray(videos)) return null;
+
+  const ready = videos.filter((video) => video?.status?.state === 'ready' && video?.uid);
+  if (!ready.length) return null;
+
+  ready.sort((a, b) => {
+    const aTime = Date.parse(a.created || a.uploaded || 0) || 0;
+    const bTime = Date.parse(b.created || b.uploaded || 0) || 0;
+    return bTime - aTime;
+  });
+
+  return ready[0];
+}
+
+async function cloudflareStreamFetch(env, path, init = {}) {
+  const accountId = env.CLOUDFLARE_ACCOUNT_ID;
+  const token = env.CLOUDFLARE_API_TOKEN;
+  if (!accountId || !token) return null;
+
+  const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(init.headers || {}),
+    },
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.success) return null;
+  return payload.result;
+}
+
+export async function fetchCloudflareLiveInputStatus(env, inputId) {
+  if (!inputId) return { connected: false };
+
+  const result = await cloudflareStreamFetch(env, `live_inputs/${inputId}`);
+  if (!result) return { connected: false };
+
+  const status = String(result.status || '').toLowerCase();
+  return { connected: status === 'connected' };
+}
+
+export async function fetchLatestCloudflareRecording(env, inputId) {
+  if (!inputId) return null;
+
+  const videos = await cloudflareStreamFetch(env, `live_inputs/${inputId}/videos`);
+  const latest = pickLatestReadyRecording(videos);
+  if (!latest?.uid) return null;
+
+  return {
+    videoUid: latest.uid,
+    hlsUrl: buildRecordingHlsPlaybackUrl(env.CLOUDFLARE_STREAM_CUSTOMER_CODE, latest.uid),
+    created: latest.created || latest.uploaded || null,
+  };
+}
+
 export async function createCloudflareLiveInput(env, name) {
   const accountId = env.CLOUDFLARE_ACCOUNT_ID;
   const token = env.CLOUDFLARE_API_TOKEN;
