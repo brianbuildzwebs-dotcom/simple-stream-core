@@ -15,6 +15,7 @@ import {
 import { Play } from 'lucide-react';
 import WatermarkOverlay from './WatermarkOverlay';
 import {
+  getChatDockHeightPx,
   isEmbedMobileViewport,
   measureEmbedShellHeight,
   postEmbedHeight,
@@ -54,7 +55,7 @@ export default function VideoPlayer({
   const [youtubeIsLive, setYoutubeIsLive] = useState(false);
   const [rtmpIsLive, setRtmpIsLive] = useState(false);
   const [rtmpNeedsUserStart, setRtmpNeedsUserStart] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(() => embed && settings.chat_enabled !== false);
   const rtmpStartPlaybackRef = useRef(null);
   const hideTimeout = useRef(null);
   const viewerCount = useViewerPresence(!!source);
@@ -65,6 +66,7 @@ export default function VideoPlayer({
   const chatEnabled = settings.chat_enabled !== false;
   const embedChatDock = embed && chatEnabled;
   const embedVideoFit = embed && isMobileEmbed ? 'cover' : 'contain';
+  const chatDockHeightPx = chatOpen ? getChatDockHeightPx() : 0;
 
   const getEmbedResizeOptions = useCallback(
     () => ({
@@ -102,6 +104,22 @@ export default function VideoPlayer({
 
     return () => window.clearTimeout(timer);
   }, [embed, embedChatDock, chatOpen, getEmbedResizeOptions, sourceKey]);
+
+  useEffect(() => {
+    if (!embed || !embedChatDock) return undefined;
+
+    const remeasure = () => {
+      const root = embedShellRef.current;
+      if (!root) return;
+      const options = getEmbedResizeOptions();
+      postEmbedHeight(measureEmbedShellHeight(root, options), {
+        collapsed: options.collapsed,
+      });
+    };
+
+    window.addEventListener('resize', remeasure);
+    return () => window.removeEventListener('resize', remeasure);
+  }, [embed, embedChatDock, chatOpen, getEmbedResizeOptions]);
 
   useEffect(() => {
     onViewerCountChange?.(viewerCount);
@@ -459,9 +477,10 @@ export default function VideoPlayer({
             <div
               className={`w-full max-w-full overflow-hidden border-white/10 bg-card/95 ${
                 chatOpen
-                  ? 'h-[min(260px,42dvh)] shrink-0 border-t rounded-b-xl max-sm:h-[min(340px,52dvh)] max-sm:rounded-none sm:rounded-b-xl'
+                  ? 'shrink-0 border-t rounded-b-xl max-sm:rounded-none sm:rounded-b-xl'
                   : 'h-0 shrink-0 border-0 pointer-events-none'
               }`}
+              style={chatOpen ? { height: `${chatDockHeightPx}px` } : undefined}
               aria-hidden={!chatOpen}
             >
               {dockPanel}

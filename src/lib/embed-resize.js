@@ -1,8 +1,12 @@
 export const EMBED_RESIZE_MESSAGE = 'simple-streamz:resize';
 export const EMBED_REMEASURE_MESSAGE = 'simple-streamz:remeasure';
 export const EMBED_MOBILE_MAX_WIDTH = 767;
-export const EMBED_DESKTOP_CHAT_DOCK_HEIGHT = 260;
-export const EMBED_MOBILE_CHAT_DOCK_HEIGHT = 340;
+export const EMBED_DESKTOP_CHAT_DOCK_HEIGHT = 288;
+export const EMBED_MOBILE_CHAT_DOCK_HEIGHT = 392;
+export const EMBED_DESKTOP_CHAT_DOCK_DVH = 45;
+export const EMBED_MOBILE_CHAT_DOCK_DVH = 58;
+/** Extra pixels so host iframe does not clip the chat composer on desktop. */
+export const EMBED_HEIGHT_BUFFER = 16;
 
 function getPhoneScreenEdge() {
   if (typeof window === 'undefined') return Number.POSITIVE_INFINITY;
@@ -17,8 +21,24 @@ export function isEmbedMobileViewport() {
   return window.innerWidth <= EMBED_MOBILE_MAX_WIDTH;
 }
 
+export function getChatDockHeightPx() {
+  if (typeof window === 'undefined') return EMBED_DESKTOP_CHAT_DOCK_HEIGHT;
+
+  const mobile = isEmbedMobileViewport();
+  const cap = mobile ? EMBED_MOBILE_CHAT_DOCK_HEIGHT : EMBED_DESKTOP_CHAT_DOCK_HEIGHT;
+  const dvhPct = mobile ? EMBED_MOBILE_CHAT_DOCK_DVH : EMBED_DESKTOP_CHAT_DOCK_DVH;
+  return Math.min(cap, Math.ceil((window.innerHeight || 600) * (dvhPct / 100)));
+}
+
 export function measureEmbedShellHeight(root, { chatDockOpen = false } = {}) {
   if (!root) return 0;
+
+  const scrollHeight = Math.ceil(root.scrollHeight || 0);
+  const rectHeight = Math.ceil(root.getBoundingClientRect().height || 0);
+  const domHeight = Math.max(scrollHeight, rectHeight);
+  if (domHeight > 0) {
+    return domHeight + (chatDockOpen ? EMBED_HEIGHT_BUFFER : 0);
+  }
 
   const width = root.clientWidth || root.getBoundingClientRect().width || 0;
   const videoHeight = Math.max(0, Math.ceil((width * 9) / 16));
@@ -27,11 +47,7 @@ export function measureEmbedShellHeight(root, { chatDockOpen = false } = {}) {
     return videoHeight;
   }
 
-  const mobile = isEmbedMobileViewport();
-  const chatHeight = mobile
-    ? Math.min(EMBED_MOBILE_CHAT_DOCK_HEIGHT, Math.ceil((window.innerHeight || 600) * 0.52))
-    : Math.min(EMBED_DESKTOP_CHAT_DOCK_HEIGHT, Math.ceil((window.innerHeight || 600) * 0.42));
-  return videoHeight + chatHeight;
+  return videoHeight + getChatDockHeightPx() + EMBED_HEIGHT_BUFFER;
 }
 
 export function subscribeEmbedRemeasure(onRemeasure) {

@@ -1,7 +1,10 @@
 (function () {
   var MOBILE_MAX = 767;
-  var MOBILE_CHAT = 340;
-  var DESKTOP_CHAT = 260;
+  var MOBILE_CHAT = 392;
+  var DESKTOP_CHAT = 288;
+  var MOBILE_DVH = 0.58;
+  var DESKTOP_DVH = 0.45;
+  var HEIGHT_BUFFER = 16;
 
   function isMobileHost() {
     return (
@@ -86,9 +89,9 @@
     if (!width) return 0;
     var videoHeight = Math.ceil((width * 9) / 16);
     var chatHeight = isMobileHost()
-      ? Math.min(MOBILE_CHAT, Math.ceil(window.innerHeight * 0.52))
-      : Math.min(DESKTOP_CHAT, Math.ceil(window.innerHeight * 0.42));
-    return videoHeight + chatHeight;
+      ? Math.min(MOBILE_CHAT, Math.ceil(window.innerHeight * MOBILE_DVH))
+      : Math.min(DESKTOP_CHAT, Math.ceil(window.innerHeight * DESKTOP_DVH));
+    return videoHeight + chatHeight + HEIGHT_BUFFER;
   }
 
   function init(frameId) {
