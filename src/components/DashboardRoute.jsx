@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
+import MfaGate from '@/components/auth/MfaGate';
 import { useAuth } from '@/lib/AuthContext';
 import { useSubscription } from '@/hooks/useSubscription';
 
@@ -10,9 +12,28 @@ const Loading = () => (
 
 export default function DashboardRoute() {
   const { user, isAuthenticated, isLoadingAuth, authChecked } = useAuth();
-  const { hasAccess, isExpired, loading } = useSubscription(user);
+  const { hasAccess, isExpired, loading, reload } = useSubscription(user);
+  const [subscriptionTimedOut, setSubscriptionTimedOut] = useState(false);
 
-  if (isLoadingAuth || !authChecked || (isAuthenticated && loading)) {
+  useEffect(() => {
+    if (!isAuthenticated || !loading) {
+      setSubscriptionTimedOut(false);
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => {
+      setSubscriptionTimedOut(true);
+      reload().catch(() => null);
+    }, 12000);
+
+    return () => window.clearTimeout(timer);
+  }, [isAuthenticated, loading, reload]);
+
+  if (isLoadingAuth || !authChecked) {
+    return <Loading />;
+  }
+
+  if (isAuthenticated && loading && !subscriptionTimedOut) {
     return <Loading />;
   }
 
@@ -24,5 +45,9 @@ export default function DashboardRoute() {
     return <Navigate to="/paywall" replace />;
   }
 
-  return <Outlet />;
+  return (
+    <MfaGate>
+      <Outlet />
+    </MfaGate>
+  );
 }

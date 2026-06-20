@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import PlayerSettingsForm from '@/components/admin/PlayerSettingsForm';
-import ChatModerator from '@/components/admin/ChatModerator';
+import ChatModerator from '@/components/chat/ChatModerator';
 import BannedUsersList from '@/components/admin/BannedUsersList';
 import { Shield, Settings, MessageSquare, UserX, ArrowLeft } from 'lucide-react';
 import { motion } from 'framer-motion';

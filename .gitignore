@@ -76,6 +76,8 @@ agent-tools/
 
 # Local tooling
 terminals/
+mcps/
+simple-streamz/
 
 # Misc
 *.suo

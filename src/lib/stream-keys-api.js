@@ -8,6 +8,16 @@ function handleSubscriptionRequired(response, payload) {
   }
 }
 
+export function streamKeysForEmbedSelect(streamKeys) {
+  return (streamKeys ?? []).filter((key) => key.status !== 'revoked');
+}
+
+export function streamKeyOptionLabel(key) {
+  const name = key.stream_name || 'Untitled stream';
+  if (key.status === 'inactive') return `${name} (inactive)`;
+  return name;
+}
+
 export async function fetchStreamKeys() {
   const response = await fetch('/api/stream-keys', {
     headers: await authJsonHeaders(),
@@ -16,7 +26,12 @@ export async function fetchStreamKeys() {
   if (!response.ok) {
     throw new Error(payload.error || 'Failed to load stream keys');
   }
-  return payload.stream_keys ?? [];
+  return {
+    streamKeys: payload.stream_keys ?? [],
+    limit: payload.limit ?? 1,
+    count: payload.count ?? payload.stream_keys?.length ?? 0,
+    remaining: payload.remaining ?? 0,
+  };
 }
 
 export async function createStreamKey(streamName) {

@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus,
@@ -12,10 +13,20 @@ import {
   Code2,
   Radio,
   ExternalLink,
+  MessageSquare,
 } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
-import { fetchUserEmbeds } from '@/lib/subscription';
-import { fetchStreamKeys } from '@/lib/stream-keys-api';
+import {
+  fetchUserEmbeds,
+  fetchUserStreamKeys,
+  planRequiresWatermark,
+} from '@/lib/subscription';
+import { useSubscription } from '@/hooks/useSubscription';
+import {
+  fetchStreamKeys,
+  streamKeyOptionLabel,
+  streamKeysForEmbedSelect,
+} from '@/lib/stream-keys-api';
 import {
   buildEmbedIframeHtml,
   buildEmbedUrl,
@@ -29,7 +40,8 @@ import { toast } from '@/components/ui/use-toast';
 function streamKeyLabel(streamKeys, streamKeyId) {
   if (!streamKeyId) return 'No stream key linked';
   const key = streamKeys.find((k) => k.id === streamKeyId);
-  return key?.stream_name || 'Untitled stream';
+  if (!key) return 'Stream key unavailable';
+  return streamKeyOptionLabel(key);
 }
 
 function StreamKeyEditor({ embed, streamKeys, onSave }) {
@@ -74,7 +86,7 @@ function StreamKeyEditor({ embed, streamKeys, onSave }) {
             <option value="">Select stream key...</option>
             {streamKeys.map((key) => (
               <option key={key.id} value={key.id}>
-                {key.stream_name || 'Untitled stream'}
+                {streamKeyOptionLabel(key)}
               </option>
             ))}
           </select>
@@ -130,6 +142,9 @@ function DomainsEditor({ embed, onSave }) {
 
 export default function EmbedManager() {
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const { subscription, plan } = useSubscription(user);
+  const tierRequiresWatermark = planRequiresWatermark(subscription, plan, user);
   const [embeds, setEmbeds] = useState([]);
   const [streamKeys, setStreamKeys] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -137,32 +152,81 @@ export default function EmbedManager() {
   const [expandedId, setExpandedId] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
   const [newEmbed, setNewEmbed] = useState({
-    name: '',
+    name: searchParams.get('name')?.trim() || '',
     video_source_type: 'rtmp',
     video_source_url: '',
-    stream_key_id: '',
+    stream_key_id: searchParams.get('stream_key_id')?.trim() || '',
   });
+
+  const loadStreamKeys = useCallback(async () => {
+    try {
+      const keyPayload = await fetchStreamKeys();
+      return streamKeysForEmbedSelect(keyPayload.streamKeys);
+    } catch (apiError) {
+      console.warn('Stream keys API failed, falling back to Supabase:', apiError.message);
+      const rows = await fetchUserStreamKeys(user.id);
+      return streamKeysForEmbedSelect(rows);
+    }
+  }, [user?.id]);
 
   useEffect(() => {
     if (!user?.id) return;
-    Promise.all([fetchUserEmbeds(user.id), fetchStreamKeys()])
-      .then(([embedRows, keyRows]) => {
-        const activeKeys = keyRows.filter((k) => k.status === 'active');
-        setEmbeds(embedRows);
-        setStreamKeys(activeKeys);
-        if (activeKeys.length > 0) {
+
+    let cancelled = false;
+    setLoading(true);
+
+    const loadAll = async () => {
+      const [embedResult, keysResult] = await Promise.allSettled([
+        fetchUserEmbeds(user.id),
+        loadStreamKeys(),
+      ]);
+
+      if (cancelled) return;
+
+      if (embedResult.status === 'fulfilled') {
+        setEmbeds(embedResult.value);
+      } else {
+        setEmbeds([]);
+        toast({
+          title: 'Could not load embeds',
+          description: embedResult.reason?.message || 'Unknown error',
+          variant: 'destructive',
+        });
+      }
+
+      if (keysResult.status === 'fulfilled') {
+        const selectableKeys = keysResult.value;
+        const preferredKeyId = searchParams.get('stream_key_id')?.trim() || '';
+        const preferredKey = selectableKeys.find((key) => key.id === preferredKeyId);
+        setStreamKeys(selectableKeys);
+        if (selectableKeys.length > 0) {
           setNewEmbed((prev) => ({
             ...prev,
             video_source_type: 'rtmp',
-            stream_key_id: prev.stream_key_id || activeKeys[0].id,
+            stream_key_id:
+              prev.stream_key_id && selectableKeys.some((key) => key.id === prev.stream_key_id)
+                ? prev.stream_key_id
+                : preferredKey?.id || selectableKeys[0].id,
           }));
         }
-      })
-      .catch(() => {
+      } else {
         setStreamKeys([]);
-      })
-      .finally(() => setLoading(false));
-  }, [user?.id]);
+        toast({
+          title: 'Could not load stream keys',
+          description: keysResult.reason?.message || 'Unknown error',
+          variant: 'destructive',
+        });
+      }
+
+      setLoading(false);
+    };
+
+    loadAll();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, loadStreamKeys, searchParams]);
 
   const createHint = (() => {
     if (!newEmbed.name.trim()) {
@@ -258,6 +322,16 @@ export default function EmbedManager() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const copyEmbedUrl = (embed) => {
+    navigator.clipboard.writeText(buildEmbedUrl(embed.tracking_code));
+    setCopiedId(`url-${embed.id}`);
+    toast({
+      title: 'Embed link copied',
+      description: 'Paste this exact URL into your site iframe src.',
+    });
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -271,7 +345,9 @@ export default function EmbedManager() {
       <div>
         <h1 className="text-2xl font-bold font-heading text-foreground">Embed Manager</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Each embed has a unique tracking code. Copy the iframe and paste it into any website.
+          Each embed has a unique tracking code. Copy the full block (style, iframe, and one script tag) and paste it into your site.
+          Replace any older embed HTML completely — older copies included a second inline script that causes desktop chat flashing.
+          On Hostinger, use an HTML/embed widget and stretch the element to full section width on mobile (not a small fixed box).
         </p>
       </div>
 
@@ -319,19 +395,29 @@ export default function EmbedManager() {
               <label className="text-xs font-semibold text-foreground" htmlFor="embed-stream-key">
                 3. Stream key
               </label>
-              <select
-                id="embed-stream-key"
-                value={newEmbed.stream_key_id}
-                onChange={(e) => setNewEmbed((prev) => ({ ...prev, stream_key_id: e.target.value }))}
-                className="w-full bg-secondary/50 border border-border/50 rounded-xl px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50"
-              >
-                <option value="">Select stream key...</option>
-                {streamKeys.map((key) => (
-                  <option key={key.id} value={key.id}>
-                    {key.stream_name || 'Untitled stream'}
-                  </option>
-                ))}
-              </select>
+              {streamKeys.length === 0 ? (
+                <p className="text-xs text-muted-foreground rounded-xl border border-border/50 bg-secondary/30 px-3 py-2">
+                  No stream keys found.{' '}
+                  <Link to="/dashboard/streams" className="text-primary hover:underline">
+                    Create one on Stream Keys
+                  </Link>
+                  .
+                </p>
+              ) : (
+                <select
+                  id="embed-stream-key"
+                  value={newEmbed.stream_key_id}
+                  onChange={(e) => setNewEmbed((prev) => ({ ...prev, stream_key_id: e.target.value }))}
+                  className="w-full bg-secondary/50 border border-border/50 rounded-xl px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50"
+                >
+                  <option value="">Select stream key...</option>
+                  {streamKeys.map((key) => (
+                    <option key={key.id} value={key.id}>
+                      {streamKeyOptionLabel(key)}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
           ) : (
             <div className="space-y-1.5">
@@ -384,11 +470,22 @@ export default function EmbedManager() {
                 animate={{ opacity: 1, y: 0 }}
                 className="bg-card rounded-2xl border border-border/50 overflow-hidden"
               >
-                <div className="p-4 flex items-center justify-between gap-3">
-                  <div>
+                <div className="p-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0 flex-1">
                     <p className="font-semibold text-foreground">{embed.name}</p>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
-                      <span className="text-xs text-muted-foreground font-mono">{embed.tracking_code}</span>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Code:{' '}
+                      <span className="font-mono break-all">{embed.tracking_code}</span>
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => copyEmbedUrl(embed)}
+                      className="mt-1 block max-w-full text-left text-xs font-mono text-primary hover:underline break-all"
+                      title="Copy preview URL"
+                    >
+                      {buildEmbedUrl(embed.tracking_code)}
+                    </button>
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
                       <span className="text-xs text-muted-foreground capitalize">
                         {embed.video_source_type || 'youtube'}
                       </span>
@@ -403,7 +500,14 @@ export default function EmbedManager() {
                       </span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    <Link
+                      to={`/dashboard/chat?embed=${embed.id}`}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                      title="Moderate chat"
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                    </Link>
                     <a
                       href={buildEmbedUrl(embed.tracking_code)}
                       target="_blank"
@@ -454,7 +558,11 @@ export default function EmbedManager() {
                             onSave={(streamKeyId) => updateEmbed(embed.id, { stream_key_id: streamKeyId })}
                           />
                         )}
-                        <WatermarkConfigurator embed={embed} onSave={(data) => updateEmbed(embed.id, data)} />
+                        <WatermarkConfigurator
+                          embed={embed}
+                          watermarkLocked={tierRequiresWatermark}
+                          onSave={(data) => updateEmbed(embed.id, data)}
+                        />
                         <DomainsEditor embed={embed} onSave={(domains) => updateEmbed(embed.id, { allowed_domains: domains })} />
                       </div>
                     </motion.div>

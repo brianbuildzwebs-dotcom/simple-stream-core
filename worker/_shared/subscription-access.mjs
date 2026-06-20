@@ -97,3 +97,54 @@ export async function assertPlatformAccess(env, userId) {
   }
   return access;
 }
+
+async function getSubscriptionTierById(env, tierId) {
+  if (!tierId) return null;
+  const rows = await supabaseSelect(
+    env,
+    'subscription_tiers',
+    `id=eq.${tierId}&select=has_watermark`
+  );
+  return rows?.[0] ?? null;
+}
+
+async function getSubscriptionTierByName(env, tierName) {
+  if (!tierName) return null;
+  const rows = await supabaseSelect(
+    env,
+    'subscription_tiers',
+    `name=eq.${encodeURIComponent(tierName)}&select=has_watermark`
+  );
+  return rows?.[0] ?? null;
+}
+
+export async function resolveOwnerWatermarkPolicy(env, userId) {
+  const [subscription, isAdmin] = await Promise.all([
+    getUserSubscription(env, userId),
+    isUserAdmin(env, userId),
+  ]);
+
+  if (!subscription) {
+    const requires = !isAdmin;
+    return { tierRequiresWatermark: requires, defaultWatermarkEnabled: requires };
+  }
+
+  if (subscription.payment_status === 'free_admin' || isAdmin) {
+    return { tierRequiresWatermark: false, defaultWatermarkEnabled: false };
+  }
+
+  const tier =
+    (await getSubscriptionTierById(env, subscription.subscription_tier_id)) ||
+    (await getSubscriptionTierByName(env, subscription.tier_name));
+
+  if (tier) {
+    const requires = Boolean(tier.has_watermark);
+    return { tierRequiresWatermark: requires, defaultWatermarkEnabled: requires };
+  }
+
+  if (subscription.is_paid || subscription.payment_status === 'subscribed') {
+    return { tierRequiresWatermark: false, defaultWatermarkEnabled: false };
+  }
+
+  return { tierRequiresWatermark: true, defaultWatermarkEnabled: true };
+}

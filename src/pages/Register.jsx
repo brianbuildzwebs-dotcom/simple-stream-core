@@ -3,6 +3,7 @@ import { Link, Navigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/AuthContext";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { UserPlus, Mail, Lock, Loader2, ExternalLink } from "lucide-react";
@@ -10,8 +11,12 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp
 import AuthLayout from "@/components/AuthLayout";
 import GoogleIcon from "@/components/GoogleIcon";
 import { toast } from "@/components/ui/use-toast";
-
-const authRedirectTo = () => `${window.location.origin}/dashboard`;
+import { authCallbackUrl } from "@/lib/auth-redirect";
+import { completeSignIn } from "@/lib/complete-sign-in";
+import {
+  buildTermsAcceptanceMetadata,
+  stageTermsAcceptanceForOAuth,
+} from "@/lib/terms-acceptance";
 
 export default function Register() {
   const { isAuthenticated, isLoadingAuth, authChecked } = useAuth();
@@ -22,6 +27,7 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const [showVerify, setShowVerify] = useState(false);
   const [otpCode, setOtpCode] = useState("");
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
 
   if (!isLoadingAuth && authChecked && isAuthenticated) {
     return <Navigate to="/dashboard" replace />;
@@ -34,16 +40,27 @@ export default function Register() {
       setError("Passwords do not match");
       return;
     }
+    if (!acceptedTerms) {
+      setError("Please accept the Terms of Use and Privacy Policy to continue.");
+      return;
+    }
     setLoading(true);
     try {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { emailRedirectTo: authRedirectTo() },
+        options: {
+          emailRedirectTo: authCallbackUrl(),
+          data: buildTermsAcceptanceMetadata(),
+        },
       });
       if (error) throw error;
       if (data.session) {
-        window.location.href = "/dashboard";
+        await completeSignIn({
+          userId: data.user?.id,
+          recordTerms: true,
+          acceptanceMethod: 'email',
+        });
         return;
       }
       setShowVerify(true);
@@ -58,13 +75,17 @@ export default function Register() {
     setError("");
     setLoading(true);
     try {
-      const { error } = await supabase.auth.verifyOtp({
+      const { data, error } = await supabase.auth.verifyOtp({
         email,
         token: otpCode,
         type: "signup",
       });
       if (error) throw error;
-      window.location.href = "/dashboard";
+      await completeSignIn({
+        userId: data.user?.id,
+        recordTerms: true,
+        acceptanceMethod: 'email',
+      });
     } catch (err) {
       setError(err.message || "Invalid verification code");
     } finally {
@@ -78,7 +99,7 @@ export default function Register() {
       const { error } = await supabase.auth.resend({
         type: "signup",
         email,
-        options: { emailRedirectTo: authRedirectTo() },
+        options: { emailRedirectTo: authCallbackUrl() },
       });
       if (error) throw error;
       toast({
@@ -92,11 +113,25 @@ export default function Register() {
 
   const handleGoogle = async () => {
     setError("");
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: authRedirectTo() },
-    });
-    if (error) setError(error.message);
+    if (!acceptedTerms) {
+      setError("Please accept the Terms of Use and Privacy Policy to continue.");
+      return;
+    }
+    setLoading(true);
+    try {
+      stageTermsAcceptanceForOAuth();
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: authCallbackUrl(),
+          queryParams: { prompt: "select_account" },
+        },
+      });
+      if (error) throw error;
+    } catch (err) {
+      setError(err.message || "Google sign-in failed");
+      setLoading(false);
+    }
   };
 
   if (showVerify) {
@@ -124,7 +159,7 @@ export default function Register() {
           <p>
             If the link looks broken, add this URL in Supabase → Authentication → URL
             Configuration → Redirect URLs:{" "}
-            <span className="font-mono text-xs text-foreground">{authRedirectTo()}</span>
+            <span className="font-mono text-xs text-foreground">{authCallbackUrl()}</span>
           </p>
         </div>
 
@@ -181,8 +216,8 @@ export default function Register() {
   return (
     <AuthLayout
       icon={UserPlus}
-      title="Create your account"
-      subtitle="Sign up to get started"
+      title="Start your church trial"
+      subtitle="10 days free — no credit card. Set up before Sunday."
       footer={
         <>
           Already have an account?{" "}
@@ -192,12 +227,37 @@ export default function Register() {
         </>
       }
     >
+      <div className="mb-6 flex items-start gap-3 rounded-xl border border-border/50 bg-secondary/20 p-4">
+        <Checkbox
+          id="accept-terms"
+          checked={acceptedTerms}
+          onCheckedChange={(value) => setAcceptedTerms(value === true)}
+        />
+        <label htmlFor="accept-terms" className="text-sm leading-relaxed text-muted-foreground">
+          I agree to the{" "}
+          <Link to="/terms" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+            Terms of Use
+          </Link>{" "}
+          and{" "}
+          <Link to="/privacy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+            Privacy Policy
+          </Link>
+          . I understand I am solely responsible for the content I stream, including copyright
+          compliance.
+        </label>
+      </div>
+
       <Button
         variant="outline"
         className="w-full h-12 text-sm font-medium mb-6"
         onClick={handleGoogle}
+        disabled={loading || !acceptedTerms}
       >
-        <GoogleIcon className="w-5 h-5 mr-2" />
+        {loading ? (
+          <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+        ) : (
+          <GoogleIcon className="w-5 h-5 mr-2" />
+        )}
         Continue with Google
       </Button>
 
@@ -266,7 +326,7 @@ export default function Register() {
             />
           </div>
         </div>
-        <Button type="submit" className="w-full h-12 font-medium" disabled={loading}>
+        <Button type="submit" className="w-full h-12 font-medium" disabled={loading || !acceptedTerms}>
           {loading ? (
             <>
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />

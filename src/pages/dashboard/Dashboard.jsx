@@ -1,17 +1,83 @@
-import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Radio, Code2, Clock, Crown, Eye, Activity } from 'lucide-react';
 import ViewerCount from '@/components/player/ViewerCount';
 import { useAuth } from '@/lib/AuthContext';
 import { useSubscription } from '@/hooks/useSubscription';
-import { fetchUserStreamKeys, fetchUserEmbeds } from '@/lib/subscription';
+import {
+  fetchUserStreamKeys,
+  fetchUserEmbeds,
+  getPlanPeriodEndLabel,
+  isSubscriptionCancelScheduled,
+  needsStripeSync,
+} from '@/lib/subscription';
+import { confirmCheckoutSession, syncStripeSubscription } from '@/lib/stripe';
+import { toast } from '@/components/ui/use-toast';
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const { subscription, daysLeft, hasAccess, isPaid, loading } = useSubscription(user);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const confirmedSessionRef = useRef('');
+  const { subscription, plan, planLabel, daysLeft, hasAccess, isPaid, loading, reload } =
+    useSubscription(user);
+  const [syncing, setSyncing] = useState(false);
   const [streamKeys, setStreamKeys] = useState([]);
   const [embeds, setEmbeds] = useState([]);
+
+
+  useEffect(() => {
+    const checkoutState = searchParams.get('checkout');
+    if (!checkoutState) return;
+
+    const clearCheckoutParams = () => {
+      const next = new URLSearchParams(searchParams);
+      next.delete('checkout');
+      next.delete('session_id');
+      setSearchParams(next, { replace: true });
+    };
+
+    if (checkoutState === 'canceled') {
+      clearCheckoutParams();
+      return;
+    }
+
+    if (checkoutState !== 'success') return;
+
+    const sessionId = searchParams.get('session_id');
+    if (!sessionId) {
+      clearCheckoutParams();
+      return;
+    }
+    if (confirmedSessionRef.current === sessionId) return;
+    confirmedSessionRef.current = sessionId;
+
+    confirmCheckoutSession(sessionId)
+      .then(async (result) => {
+        if (result.activated) {
+          await reload();
+          toast({
+            title: 'Subscription activated',
+            description: 'Your new plan limits are active.',
+          });
+          return;
+        }
+        toast({
+          title: 'Payment processing',
+          description: 'Stripe is finalizing your subscription. Use Sync from Stripe on Profile if needed.',
+        });
+      })
+      .catch((error) => {
+        toast({
+          title: 'Could not confirm checkout',
+          description: error.message,
+          variant: 'destructive',
+        });
+      })
+      .finally(() => {
+        clearCheckoutParams();
+      });
+  }, [reload, searchParams, setSearchParams]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -19,12 +85,45 @@ export default function Dashboard() {
     fetchUserEmbeds(user.id).then(setEmbeds).catch(() => setEmbeds([]));
   }, [user?.id]);
 
+  const cancelScheduled = isSubscriptionCancelScheduled(subscription);
+  const periodEnd = getPlanPeriodEndLabel(subscription);
+
   const totalViews = embeds.reduce((sum, embed) => sum + (embed.total_views || 0), 0);
   const totalWatchMin = embeds.reduce(
     (sum, embed) => sum + Number(embed.total_watch_minutes || 0),
     0
   );
   const liveStreams = streamKeys.filter((key) => key.is_live).length;
+
+  const handleRefreshSubscription = async () => {
+    setSyncing(true);
+    try {
+      const result = await syncStripeSubscription();
+      await reload();
+      if (result.synced) {
+        toast({
+          title: 'Subscription updated',
+          description: result.tierUpdated
+            ? 'Your plan details were refreshed from Stripe.'
+            : 'Your paid plan is now active on the dashboard.',
+        });
+      } else {
+        toast({
+          title: 'No active Stripe subscription found',
+          description: 'If you just paid, wait a moment and try again.',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      toast({
+        title: 'Could not refresh subscription',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -54,6 +153,52 @@ export default function Dashboard() {
         </h1>
         <p className="text-sm text-muted-foreground mt-1">Here&apos;s your streaming overview.</p>
       </motion.div>
+
+      {isPaid && subscription && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+          className={`p-4 rounded-2xl border flex items-center justify-between gap-4 flex-wrap ${
+            cancelScheduled
+              ? 'border-amber-500/30 bg-amber-500/10'
+              : 'border-green-500/30 bg-green-500/10'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <Crown className={`w-5 h-5 ${cancelScheduled ? 'text-amber-400' : 'text-green-400'}`} />
+            <div>
+              <p className="text-sm font-semibold text-foreground">
+                {cancelScheduled
+                  ? `${planLabel || 'Paid'} plan — canceling`
+                  : planLabel
+                    ? `${planLabel} plan active`
+                    : 'Paid plan active'}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {plan?.max_stream_keys
+                  ? `Up to ${plan.max_stream_keys} stream keys`
+                  : 'Stream keys and embeds unlocked'}
+                {plan?.has_watermark === false ? ' · No watermark' : ''}
+                {periodEnd
+                  ? ` · ${periodEnd.label} ${new Date(periodEnd.date).toLocaleDateString()}`
+                  : ''}
+                {cancelScheduled ? ' · No further charges' : ''}
+              </p>
+            </div>
+          </div>
+          {needsStripeSync(user, subscription, plan) && (
+            <button
+              type="button"
+              onClick={handleRefreshSubscription}
+              disabled={syncing}
+              className="px-3 py-2 rounded-xl border border-border text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-60"
+            >
+              {syncing ? 'Syncing…' : 'Sync plan from Stripe'}
+            </button>
+          )}
+        </motion.div>
+      )}
 
       {!isPaid && subscription && (
         <motion.div
@@ -92,12 +237,24 @@ export default function Dashboard() {
               )}
             </div>
           </div>
-          <Link
-            to="/pricing"
-            className="shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
-          >
-            <Crown className="w-4 h-4" /> Upgrade
-          </Link>
+          <div className="shrink-0 flex items-center gap-2">
+            {needsStripeSync(user, subscription, plan) && (
+              <button
+                type="button"
+                onClick={handleRefreshSubscription}
+                disabled={syncing}
+                className="px-3 py-2 rounded-xl border border-border text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-60"
+              >
+                {syncing ? 'Refreshing…' : 'Already paid? Refresh'}
+              </button>
+            )}
+            <Link
+              to="/pricing"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+            >
+              <Crown className="w-4 h-4" /> Upgrade
+            </Link>
+          </div>
         </motion.div>
       )}
 

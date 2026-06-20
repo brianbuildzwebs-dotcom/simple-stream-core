@@ -11,15 +11,21 @@ import {
   ChevronRight,
   Shield,
   Menu,
+  MessageSquare,
+  User,
 } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
 import { useSubscription } from '@/hooks/useSubscription';
+import { isPlatformAdmin } from '@/lib/subscription';
+import { hasPendingEnterpriseOffer } from '@/lib/enterprise';
 import { APP_NAME } from '@/lib/brand';
 
 const NAV = [
   { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, exact: true },
   { path: '/dashboard/streams', label: 'Stream Keys', icon: Radio },
   { path: '/dashboard/embeds', label: 'Embed Manager', icon: Code2 },
+  { path: '/dashboard/chat', label: 'Chat Moderation', icon: MessageSquare },
+  { path: '/dashboard/profile', label: 'Profile', icon: User },
 ];
 
 export default function AppLayout() {
@@ -27,7 +33,9 @@ export default function AppLayout() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
-  const { daysLeft, subscription } = useSubscription(user);
+  const { daysLeft, subscription, isPaid, planLabel, plan } = useSubscription(user);
+  const enterpriseOfferPending = hasPendingEnterpriseOffer(subscription);
+  const onProfilePage = location.pathname === '/dashboard/profile';
 
   const isActive = (path, exact) =>
     exact ? location.pathname === path : location.pathname.startsWith(path);
@@ -43,7 +51,34 @@ export default function AppLayout() {
         )}
       </div>
 
-      {!collapsed && subscription?.trial_active && daysLeft !== null && daysLeft <= 7 && (
+      {!collapsed && enterpriseOfferPending && !onProfilePage && (
+        <Link
+          to="/dashboard/profile"
+          className="mx-3 mt-3 block px-3 py-2 rounded-lg text-xs font-medium border bg-amber-500/10 text-amber-200 border-amber-500/20 hover:bg-amber-500/15 transition-colors"
+        >
+          <p className="font-semibold text-foreground">Enterprise upgrade ready</p>
+          <p className="text-[11px] text-muted-foreground mt-0.5">Review on Profile</p>
+        </Link>
+      )}
+
+      {!collapsed && (isPaid || isPlatformAdmin(user, subscription)) && planLabel && (
+        <div className="mx-3 mt-3 px-3 py-2 rounded-lg text-xs font-medium border bg-green-500/10 text-green-300 border-green-500/20">
+          <p className="font-semibold text-foreground">
+            {planLabel} plan
+            {isPlatformAdmin(user, subscription) && planLabel !== 'Admin' ? (
+              <span className="text-[10px] text-muted-foreground font-normal"> · Admin</span>
+            ) : null}
+          </p>
+          {plan?.monthly_price != null && (
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              ${Number(plan.monthly_price).toFixed(2)}/mo
+              {plan?.max_stream_keys ? ` · ${plan.max_stream_keys} stream keys` : ''}
+            </p>
+          )}
+        </div>
+      )}
+
+      {!collapsed && !isPaid && subscription?.trial_active && daysLeft !== null && daysLeft <= 7 && (
         <div
           className={`mx-3 mt-3 px-3 py-2 rounded-lg text-xs font-medium border ${
             daysLeft <= 2
@@ -88,7 +123,7 @@ export default function AppLayout() {
       </nav>
 
       <div className="p-3 border-t border-border/50 space-y-1 shrink-0">
-        {!subscription?.is_paid && subscription?.payment_status !== 'free_admin' && (
+        {!isPaid && subscription?.payment_status !== 'free_admin' && (
           <Link
             to="/pricing"
             onClick={() => setMobileOpen(false)}

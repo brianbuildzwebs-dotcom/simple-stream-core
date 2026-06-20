@@ -2,57 +2,126 @@ import {
   buildHlsPlaybackUrl,
   enableCloudflareLiveInputPlayback,
 } from './cloudflare-stream.mjs';
+import { resolveOwnerWatermarkPolicy } from './subscription-access.mjs';
 import { supabaseSelect, supabaseUpdate } from './supabase-admin.mjs';
+import { parseYoutubeUrl } from './youtube-url.mjs';
 
-function parseYoutubeUrl(url) {
-  if (!url) return null;
+function hostFromReferer(referer) {
+  if (!referer) return '';
   try {
-    const parsed = new URL(url);
-    const videoId = parsed.searchParams.get('v');
-    if (videoId) return { type: 'youtube', url, videoId, isLive: /live/i.test(url) };
-    const shorts = parsed.pathname.match(/\/shorts\/([^/]+)/);
-    if (shorts) return { type: 'youtube', url, videoId: shorts[1] };
-    const embed = parsed.pathname.match(/\/embed\/([^/]+)/);
-    if (embed) return { type: 'youtube', url, videoId: embed[1] };
-    const live = parsed.pathname.match(/\/live\/([^/]+)/);
-    if (live) return { type: 'youtube', url, videoId: live[1], isLive: true };
+    return new URL(referer).hostname.toLowerCase();
   } catch {
-    return null;
+    return '';
   }
-  return null;
+}
+
+function hostMatchesDomainPattern(host, pattern) {
+  const domain = String(pattern || '').trim().toLowerCase();
+  const normalizedHost = String(host || '').trim().toLowerCase();
+  if (!domain || !normalizedHost) return false;
+  if (domain === '*') return true;
+  if (domain.startsWith('*.')) {
+    const suffix = domain.slice(1);
+    const bare = domain.slice(2);
+    return normalizedHost === bare || normalizedHost.endsWith(suffix);
+  }
+  return normalizedHost === domain || normalizedHost.endsWith(`.${domain}`);
 }
 
 function domainAllowed(referer, allowedDomains) {
   if (!allowedDomains?.length) return true;
-  let host = '';
-  try {
-    host = new URL(referer).hostname;
-  } catch {
-    return false;
-  }
-  return allowedDomains.some((entry) => {
-    const domain = entry.trim().toLowerCase();
-    if (!domain) return false;
-    if (domain === '*') return true;
-    if (domain.startsWith('*.')) {
-      const suffix = domain.slice(1);
-      return host === domain.slice(2) || host.endsWith(suffix);
-    }
-    return host === domain || host.endsWith(`.${domain}`);
-  });
+  const host = hostFromReferer(referer);
+  if (!host) return false;
+  return allowedDomains.some((entry) => hostMatchesDomainPattern(host, entry));
 }
 
-export async function resolveEmbedConfig(env, trackingCode, referer) {
+function isPlatformPreviewHost(host) {
+  const normalized = String(host || '').trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized === 'localhost' ||
+    normalized === '127.0.0.1' ||
+    normalized.endsWith('.workers.dev') ||
+    normalized.endsWith('.pages.dev')
+  );
+}
+
+function normalizeTrackingCode(trackingCode) {
+  return String(trackingCode || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]/g, '');
+}
+
+async function fetchEmbedByTrackingCode(env, trackingCode) {
+  const raw = String(trackingCode || '').trim();
+  const normalized = normalizeTrackingCode(raw);
+  if (!normalized) {
+    return { embed: null, error: 'Embed code is required' };
+  }
+
+  const candidates = [...new Set([normalized, raw.toLowerCase(), raw].filter(Boolean))];
+
+  for (const code of candidates) {
+    const rows = await supabaseSelect(
+      env,
+      'embed_instances',
+      `tracking_code=eq.${encodeURIComponent(code)}&select=*&limit=1`
+    );
+    if (rows === null) {
+      return { embed: null, error: 'Could not load embed configuration', status: 500 };
+    }
+    if (rows[0]) {
+      return { embed: rows[0] };
+    }
+  }
+
+  return { embed: null };
+}
+
+export function resolveEmbedWatermarkVisible(embed, watermarkPolicy, isWhitelisted = false) {
+  if (isWhitelisted) return false;
+  if (watermarkPolicy.tierRequiresWatermark) return true;
+  if (embed.is_watermark_enabled === false) return false;
+  return embed.is_watermark_enabled === true;
+}
+
+async function isDomainWatermarkExempt(env, host) {
+  if (!host) return false;
+
   const rows = await supabaseSelect(
     env,
-    'embed_instances',
-    `tracking_code=eq.${encodeURIComponent(trackingCode)}&is_active=eq.true&select=*`
+    'domain_whitelist',
+    'is_active=eq.true&select=domain'
   );
-  const embed = rows?.[0];
-  if (!embed) return { error: 'Embed not found', status: 404 };
 
-  if (!domainAllowed(referer, embed.allowed_domains)) {
-    return { error: 'Domain not allowed', status: 403 };
+  return (rows ?? []).some((row) => hostMatchesDomainPattern(host, row.domain));
+}
+
+export async function resolveEmbedConfig(env, trackingCode, referer, viewHost = '') {
+  const lookup = await fetchEmbedByTrackingCode(env, trackingCode);
+  if (lookup.error) {
+    return { error: lookup.error, status: lookup.status || 500 };
+  }
+
+  const embed = lookup.embed;
+  if (!embed) {
+    return { error: 'Embed not found. Check the embed code in Embed Manager.', status: 404 };
+  }
+
+  if (embed.is_active === false) {
+    return { error: 'This embed is inactive. Reactivate it in Embed Manager.', status: 404 };
+  }
+
+  const playbackHost = (viewHost || hostFromReferer(referer) || '').toLowerCase();
+  const domainCheckReferer = playbackHost ? `https://${playbackHost}/` : referer;
+  const platformPreview = isPlatformPreviewHost(playbackHost);
+
+  if (!platformPreview && !domainAllowed(domainCheckReferer, embed.allowed_domains)) {
+    return {
+      error:
+        'Domain not allowed for this embed. Add your site domain in Embed Manager, or preview from Simple Streamz.',
+      status: 403,
+    };
   }
 
   let source = null;
@@ -100,15 +169,36 @@ export async function resolveEmbedConfig(env, trackingCode, referer) {
   }
 
   if (!source) {
+    if (embed.video_source_type === 'youtube') {
+      return {
+        error:
+          'Invalid YouTube URL. Use a video link (watch?v=…) or playlist link (playlist?list=…).',
+        status: 422,
+      };
+    }
+    if (embed.video_source_type === 'rtmp') {
+      return {
+        error:
+          'Stream is not ready yet. Open Stream Keys, confirm the key is active, then re-link it in Embed Manager.',
+        status: 422,
+      };
+    }
     return { error: 'Embed source not configured', status: 422 };
   }
 
-  const showWatermark = embed.is_watermark_enabled !== false;
+  const [watermarkPolicy, isWhitelisted] = await Promise.all([
+    resolveOwnerWatermarkPolicy(env, embed.user_id),
+    isDomainWatermarkExempt(env, playbackHost),
+  ]);
+  const showWatermark = resolveEmbedWatermarkVisible(embed, watermarkPolicy, isWhitelisted);
 
   return {
     status: 200,
     body: {
       trackingCode,
+      embedId: embed.id,
+      ownerUserId: embed.user_id,
+      chatEnabled: embed.chat_enabled !== false,
       name: embed.name,
       source,
       watermark: showWatermark

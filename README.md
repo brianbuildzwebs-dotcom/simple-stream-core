@@ -154,7 +154,7 @@ Cloudflare now uses **Workers Builds** (Settings → **Builds** on your Worker).
 |---|---|
 | Git branch | `main` |
 | Build command | `npm run build` |
-| Deploy command | `npx wrangler deploy` (build also auto-deploys in CI with `--old-asset-ttl 0` to clear stale assets) |
+| Deploy command | `npm run deploy:ci` (uses `--old-asset-ttl 0` to clear stale assets) |
 | Root directory | `/` (blank) |
 
 5. Under **Build variables and secrets** (build-time), add at least:
@@ -173,7 +173,7 @@ Cloudflare now uses **Workers Builds** (Settings → **Builds** on your Worker).
 
 > **LIVE badges:** `/api/youtube-live` fetches a public Innertube key from YouTube automatically. You do **not** need to hunt for it in DevTools. Optional override: set runtime secret `YOUTUBE_INNERTUBE_KEY` under **Variables & Secrets**.
 
-> **Build failed?** Open **Deployments** → failed build → **View build log**. Common fixes: Worker name mismatch, missing `VITE_SUPABASE_*` build variables. If `NODE_VERSION` is set to `20`, that is fine — delete it only if you want Cloudflare's default (22).
+> **Build failed?** Open **Deployments** → failed build → **View build log**. Common fixes: Worker name mismatch, missing `VITE_SUPABASE_*` build variables, or `NODE_VERSION=20` (Wrangler 4 needs **Node 22** — set `NODE_VERSION=22` or remove the override). Run `scripts/setup-workers-builds.ps1` for the checklist.
 
 #### Option B — CLI deploy
 

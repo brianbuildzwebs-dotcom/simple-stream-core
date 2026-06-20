@@ -4,6 +4,13 @@ import { Input } from '@/components/ui/input';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '@/lib/supabase';
 import { matchesSourceKey } from '@/lib/source-key';
+import {
+  CHAT_DISPLAY_NAME_MAX,
+  isValidChatDisplayName,
+  loadChatDisplayName,
+  normalizeChatDisplayName,
+  saveChatDisplayName,
+} from '@/lib/chat-display-name';
 
 const ACTIVE_CHAT_SOURCE_KEY = 'simple-streams-active-chat-source';
 
@@ -12,17 +19,27 @@ function formatViewerCount(n) {
   return n.toLocaleString();
 }
 
-function scopeMessages(rows, sourceKey) {
+function scopeMessages(rows, sourceKey, legacySourceKey = null) {
   return (rows || []).filter(
-    (message) => !message.is_deleted && matchesSourceKey(message.source_key, sourceKey)
+    (message) =>
+      !message.is_deleted && matchesSourceKey(message.source_key, sourceKey, legacySourceKey)
   );
+}
+
+function appendUniqueMessage(prev, message) {
+  if (!message?.id) return prev;
+  if (prev.some((row) => row.id === message.id)) return prev;
+  return [...prev, message];
 }
 
 export default function ChatOverlay({
   sourceKey = null,
+  legacySourceKey = null,
   chatEpoch = 0,
   viewerCount = 0,
   isAdmin = false,
+  chatOwnerId = null,
+  embedId = null,
   chatEnabled = true,
   profanityFilter = false,
   embed = false,
@@ -49,22 +66,32 @@ export default function ChatOverlay({
 
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
-  const chatEndRef = useRef(null);
+  const [displayName, setDisplayName] = useState(() => loadChatDisplayName());
+  const [nameDraft, setNameDraft] = useState(() => loadChatDisplayName());
+  const [nameError, setNameError] = useState('');
+  const [editingName, setEditingName] = useState(() => !loadChatDisplayName());
+  const [bannedUsers, setBannedUsers] = useState([]);
+  const [sendBlocked, setSendBlocked] = useState(false);
+  const [sendError, setSendError] = useState('');
+  const messagesScrollRef = useRef(null);
+  const sendingRef = useRef(false);
   const loadGenerationRef = useRef(0);
   const activeSourceRef = useRef(sourceKey);
+  const activeLegacySourceRef = useRef(legacySourceKey);
 
   const applyMessages = useCallback(
     (updater) => {
       const currentSource = activeSourceRef.current;
+      const currentLegacySource = activeLegacySourceRef.current;
       if (!currentSource) {
         setMessages([]);
         return;
       }
 
       setMessages((prev) => {
-        const scopedPrev = scopeMessages(prev, currentSource);
+        const scopedPrev = scopeMessages(prev, currentSource, currentLegacySource);
         const next = typeof updater === 'function' ? updater(scopedPrev) : updater;
-        return scopeMessages(next, currentSource).slice(-50);
+        return scopeMessages(next, currentSource, currentLegacySource).slice(-50);
       });
     },
     []
@@ -72,6 +99,7 @@ export default function ChatOverlay({
 
   useEffect(() => {
     activeSourceRef.current = sourceKey;
+    activeLegacySourceRef.current = legacySourceKey;
 
     if (!chatEnabled || !sourceKey) {
       setMessages([]);
@@ -106,7 +134,7 @@ export default function ChatOverlay({
       if (!row) return false;
       if (sessionStorage.getItem(ACTIVE_CHAT_SOURCE_KEY) !== sourceKey) return false;
       if (activeSourceRef.current !== sourceKey) return false;
-      if (!matchesSourceKey(row.source_key, sourceKey)) return false;
+      if (!matchesSourceKey(row.source_key, sourceKey, legacySourceKey)) return false;
       if (row.created_at) {
         const createdAt = new Date(row.created_at).getTime();
         if (Number.isFinite(createdAt) && createdAt < sessionStartedAt - 2000) {
@@ -126,7 +154,7 @@ export default function ChatOverlay({
 
           if (payload.eventType === 'INSERT') {
             if (!isActiveEvent(payload.new)) return;
-            applyMessages((prev) => [...prev, payload.new]);
+            applyMessages((prev) => appendUniqueMessage(prev, payload.new));
             return;
           }
 
@@ -149,13 +177,24 @@ export default function ChatOverlay({
       .subscribe();
 
     const loadMessages = async () => {
-      const { data, error } = await supabase
+      const sourceKeys = [sourceKey];
+      if (legacySourceKey && legacySourceKey !== sourceKey) {
+        sourceKeys.push(legacySourceKey);
+      }
+
+      let query = supabase
         .from('messages')
         .select('*')
         .eq('is_deleted', false)
-        .eq('source_key', sourceKey)
         .order('created_at', { ascending: true })
         .limit(50);
+
+      query =
+        sourceKeys.length === 1
+          ? query.eq('source_key', sourceKeys[0])
+          : query.in('source_key', sourceKeys);
+
+      const { data, error } = await query;
 
       if (loadGeneration !== loadGenerationRef.current) return;
       if (sessionStorage.getItem(ACTIVE_CHAT_SOURCE_KEY) !== sourceKey) return;
@@ -165,7 +204,7 @@ export default function ChatOverlay({
         return;
       }
 
-      applyMessages(scopeMessages(data, sourceKey));
+      applyMessages(scopeMessages(data, sourceKey, legacySourceKey));
     };
 
     loadMessages();
@@ -176,16 +215,103 @@ export default function ChatOverlay({
         sessionStorage.removeItem(ACTIVE_CHAT_SOURCE_KEY);
       }
     };
-  }, [chatEnabled, sourceKey, chatEpoch, applyMessages, isControlled, onOpenChange]);
+  }, [chatEnabled, sourceKey, legacySourceKey, chatEpoch, applyMessages, isControlled, onOpenChange]);
+
+  useEffect(() => {
+    if (!chatOwnerId) {
+      setBannedUsers([]);
+      return undefined;
+    }
+
+    const loadBans = async () => {
+      const { data, error } = await supabase
+        .from('banned_users')
+        .select('user_name, source_key, owner_user_id')
+        .or(`owner_user_id.is.null,owner_user_id.eq.${chatOwnerId}`);
+
+      if (!error) {
+        setBannedUsers(data || []);
+      }
+    };
+
+    loadBans();
+
+    const channel = supabase
+      .channel(`chat-bans-${chatOwnerId}-${sourceKey || 'all'}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'banned_users' }, () => loadBans())
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [chatOwnerId, sourceKey]);
+
+  const scrollMessagesToEnd = useCallback(() => {
+    const el = messagesScrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
-      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      scrollMessagesToEnd();
     }
-  }, [messages, isOpen]);
+  }, [messages, isOpen, scrollMessagesToEnd]);
 
-  const sendMessage = async () => {
-    if (!inputValue.trim() || !sourceKey) return;
+  const isUserBanned = (userName) =>
+    bannedUsers.some(
+      (ban) =>
+        ban.user_name === userName &&
+        (!ban.owner_user_id || ban.owner_user_id === chatOwnerId) &&
+        (!ban.source_key || ban.source_key === sourceKey)
+    );
+
+  const commitDisplayName = useCallback(() => {
+    const next = normalizeChatDisplayName(nameDraft);
+    if (!isValidChatDisplayName(next)) {
+      setNameError(`Enter a name with at least 2 characters (max ${CHAT_DISPLAY_NAME_MAX}).`);
+      return false;
+    }
+    if (isUserBanned(next)) {
+      setNameError('That display name is banned from this chat.');
+      return false;
+    }
+    const saved = saveChatDisplayName(next);
+    setDisplayName(saved);
+    setNameDraft(saved);
+    setNameError('');
+    setEditingName(false);
+    return true;
+  }, [nameDraft, bannedUsers, chatOwnerId, sourceKey]);
+
+  const handleNameSubmit = useCallback(
+    (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      commitDisplayName();
+    },
+    [commitDisplayName]
+  );
+
+  const sendMessage = useCallback(async () => {
+    if (sendingRef.current || !inputValue.trim()) return;
+    if (!sourceKey) {
+      setSendError('Chat is still loading. Wait a moment and try again.');
+      return;
+    }
+    if (!isValidChatDisplayName(displayName)) {
+      setEditingName(true);
+      setNameError('Choose a display name before sending a message.');
+      return;
+    }
+    sendingRef.current = true;
+    setSendError('');
+
+    if (isUserBanned(displayName)) {
+      setSendBlocked(true);
+      sendingRef.current = false;
+      return;
+    }
 
     let content = inputValue.trim();
     if (profanityFilter) {
@@ -196,24 +322,63 @@ export default function ChatOverlay({
 
     const row = {
       source_key: sourceKey,
-      user_name: 'You',
+      user_name: displayName,
       content,
-      user: 'You',
-      text: content,
+      ...(chatOwnerId ? { owner_user_id: chatOwnerId } : {}),
+      ...(embedId ? { embed_id: embedId } : {}),
     };
 
-    const { error } = await supabase.from('messages').insert([row]);
+    let { data, error } = await supabase.from('messages').insert([row]).select().single();
+
+    if (error && (chatOwnerId || embedId)) {
+      const fallback = {
+        source_key: sourceKey,
+        user_name: displayName,
+        content,
+      };
+      ({ data, error } = await supabase.from('messages').insert([fallback]).select().single());
+    }
+
     if (error) {
       console.error('Chat send failed:', error.message);
+      setSendError('Message did not send. Tap send again or press Enter.');
+      setSendBlocked(false);
+      sendingRef.current = false;
+      return;
     }
+
+    if (data) {
+      applyMessages((prev) => appendUniqueMessage(prev, data));
+    }
+
     setInputValue('');
-  };
+    setSendBlocked(false);
+    sendingRef.current = false;
+  }, [
+    inputValue,
+    displayName,
+    sourceKey,
+    chatOwnerId,
+    embedId,
+    profanityFilter,
+    applyMessages,
+    bannedUsers,
+  ]);
+
+  const handleComposerSubmit = useCallback(
+    (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void sendMessage();
+    },
+    [sendMessage]
+  );
 
   if (!chatEnabled) {
     return null;
   }
 
-  const visibleMessages = scopeMessages(messages, sourceKey);
+  const visibleMessages = scopeMessages(messages, sourceKey, legacySourceKey);
 
   const chatBtnClass = embed
     ? 'absolute top-4 right-4 z-20 h-10 w-10 safe-area-pt safe-area-pr'
@@ -223,7 +388,7 @@ export default function ChatOverlay({
   const panelClass = useDockedPanel
     ? 'flex h-full min-h-0 w-full flex-col overflow-hidden bg-card/95 pointer-events-auto'
     : embed
-      ? 'absolute top-10 right-2 bottom-12 z-30 flex w-[min(240px,40%)] min-w-[180px] flex-col bg-black/90 backdrop-blur-md rounded-xl border border-white/10 overflow-hidden pointer-events-auto shadow-xl'
+      ? 'absolute top-10 right-2 bottom-12 z-30 flex w-[min(280px,42%)] min-w-[200px] flex-col bg-black/90 backdrop-blur-md rounded-xl border border-white/10 overflow-hidden pointer-events-auto shadow-xl'
       : 'absolute top-16 right-4 bottom-16 w-72 max-w-[calc(100%-2rem)] z-10 flex flex-col bg-black/60 backdrop-blur-md rounded-xl border border-white/10 overflow-hidden pointer-events-auto';
 
   const tickerClass = embed
@@ -253,7 +418,10 @@ export default function ChatOverlay({
         <span className="text-xs text-white/40">{visibleMessages.length} messages</span>
       </div>
 
-      <div className="flex-1 overflow-y-auto overscroll-contain px-3 py-2 space-y-2 min-h-0">
+      <div
+        ref={messagesScrollRef}
+        className="relative z-0 flex-1 overflow-y-auto overscroll-contain px-3 py-2 space-y-2 min-h-0"
+      >
         {visibleMessages.length === 0 ? (
           <p className="py-6 text-center text-xs text-white/50">No messages yet. Say hello!</p>
         ) : (
@@ -263,7 +431,7 @@ export default function ChatOverlay({
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               className={`text-sm flex items-start gap-1 group ${
-                (msg.user_name || msg.user) === 'You' ? 'bg-primary/10 rounded-lg px-2 py-1' : ''
+                (msg.user_name || msg.user) === displayName ? 'bg-primary/10 rounded-lg px-2 py-1' : ''
               }`}
             >
               <div className="flex-1 min-w-0">
@@ -278,7 +446,7 @@ export default function ChatOverlay({
                 <button
                   type="button"
                   onClick={async () => {
-                    await supabase.from('messages').delete().eq('id', msg.id);
+                    await supabase.from('messages').update({ is_deleted: true }).eq('id', msg.id);
                   }}
                   className="flex-shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-red-400 hover:text-red-300 transition-all mt-0.5 touch-manipulation"
                   aria-label="Delete message"
@@ -289,26 +457,102 @@ export default function ChatOverlay({
             </motion.div>
           ))
         )}
-        <div ref={chatEndRef} />
       </div>
 
-      <div className="flex gap-2 border-t border-white/10 p-3 flex-shrink-0 safe-area-pb">
-        <Input
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-          placeholder="Type a message..."
-          className="h-10 sm:h-9 flex-1 border-white/10 bg-white/5 text-base sm:text-sm text-white placeholder:text-white/40"
-        />
-        <button
-          type="button"
-          onClick={sendMessage}
-          className="flex h-10 w-10 sm:h-9 sm:w-9 items-center justify-center rounded-md bg-primary text-primary-foreground transition-colors hover:bg-primary/90 flex-shrink-0 touch-manipulation"
-          aria-label="Send message"
+      {editingName || !isValidChatDisplayName(displayName) ? (
+        <form
+          onSubmit={handleNameSubmit}
+          onClick={(e) => e.stopPropagation()}
+          onTouchEnd={(e) => e.stopPropagation()}
+          className="relative z-50 shrink-0 border-t border-white/10 bg-card/95 p-3 safe-area-pb pointer-events-auto touch-manipulation"
         >
-          <Send size={14} />
-        </button>
-      </div>
+          <p className="mb-2 text-xs font-medium text-white/80">Choose a display name</p>
+          {nameError && (
+            <p className="mb-2 text-[11px] text-amber-300">{nameError}</p>
+          )}
+          <div className="flex gap-2">
+            <Input
+              value={nameDraft}
+              onChange={(e) => {
+                setNameDraft(e.target.value);
+                if (nameError) setNameError('');
+              }}
+              maxLength={CHAT_DISPLAY_NAME_MAX}
+              autoComplete="nickname"
+              enterKeyHint="done"
+              placeholder="Your name"
+              className="h-11 min-w-0 flex-1 border-white/10 bg-white/5 text-base sm:h-10 sm:text-sm text-white placeholder:text-white/40"
+            />
+            <button
+              type="submit"
+              className="flex h-11 shrink-0 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 touch-manipulation cursor-pointer sm:h-10"
+            >
+              Join
+            </button>
+          </div>
+        </form>
+      ) : (
+        <form
+          onSubmit={handleComposerSubmit}
+          onClick={(e) => e.stopPropagation()}
+          onTouchEnd={(e) => e.stopPropagation()}
+          className="relative z-50 shrink-0 border-t border-white/10 bg-card/95 p-3 safe-area-pb pointer-events-auto touch-manipulation"
+        >
+          <div className="mb-2 flex items-center justify-between gap-2 text-[11px] text-white/50">
+            <span>
+              Posting as{' '}
+              <span className="font-medium text-primary">{displayName}</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setNameDraft(displayName);
+                setEditingName(true);
+                setNameError('');
+              }}
+              className="shrink-0 text-white/60 underline-offset-2 hover:text-white hover:underline touch-manipulation"
+            >
+              Change
+            </button>
+          </div>
+          {sendBlocked && (
+            <p className="mb-2 text-[11px] text-red-300">
+              You are banned from this chat.
+            </p>
+          )}
+          {sendError && !sendBlocked && (
+            <p className="mb-2 text-[11px] text-amber-300">
+              {sendError}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <Input
+              value={inputValue}
+              onChange={(e) => {
+                setInputValue(e.target.value);
+                if (sendError) setSendError('');
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  void sendMessage();
+                }
+              }}
+              enterKeyHint="send"
+              autoComplete="off"
+              placeholder="Type a message..."
+              className="h-11 min-w-0 flex-1 border-white/10 bg-white/5 text-base sm:h-10 sm:text-sm text-white placeholder:text-white/40"
+            />
+            <button
+              type="submit"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground transition-colors hover:bg-primary/90 touch-manipulation cursor-pointer sm:h-10 sm:w-10"
+              aria-label="Send message"
+            >
+              <Send size={16} className="pointer-events-none" />
+            </button>
+          </div>
+        </form>
+      )}
     </PanelWrapper>
     );
   };

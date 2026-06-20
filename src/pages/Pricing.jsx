@@ -2,22 +2,31 @@ import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Check, Zap } from 'lucide-react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { fetchActiveTiers, initUserSubscription } from '@/lib/subscription';
+import { fetchActiveTiers, fetchUserStreamKeys, waitForSubscriptionAccess } from '@/lib/subscription';
 import { confirmCheckoutSession, createCheckoutSession } from '@/lib/stripe';
+import { getPlanChangeAction } from '@/lib/plan-change';
+import PlanChangeConfirmDialog from '@/components/subscription/PlanChangeConfirmDialog';
 import { useAuth } from '@/lib/AuthContext';
 import { useSubscription } from '@/hooks/useSubscription';
 import { APP_NAME, SUPPORT_EMAIL } from '@/lib/brand';
+import { ENTERPRISE_PLAN, enterpriseMailto } from '@/lib/enterprise';
+import { getChurchPlanPresentation } from '@/lib/church-plans';
 import { toast } from '@/components/ui/use-toast';
+import PublicHeader from '@/components/layout/PublicHeader';
 
 export default function Pricing() {
   const [tiers, setTiers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [checkoutTierId, setCheckoutTierId] = useState(null);
   const { isAuthenticated, isLoadingAuth, authChecked, user } = useAuth();
-  const { isPaid, isExpired, hasAccess, reload } = useSubscription(user);
+  const { isPaid, isExpired, hasAccess, reload, subscription, plan, planLabel } =
+    useSubscription(user);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [confirmingCheckout, setConfirmingCheckout] = useState(false);
+  const [checkoutComplete, setCheckoutComplete] = useState(false);
+  const [pendingPlanChange, setPendingPlanChange] = useState(null);
+  const [streamKeyCount, setStreamKeyCount] = useState(0);
   const confirmedSessionRef = useRef('');
 
   useEffect(() => {
@@ -54,13 +63,23 @@ export default function Pricing() {
     confirmCheckoutSession(sessionId)
       .then(async (result) => {
         if (result.activated) {
-          await initUserSubscription();
+          setCheckoutComplete(true);
+          const access = await waitForSubscriptionAccess(user);
           await reload();
+
+          if (access.hasAccess) {
+            toast({
+              title: 'Subscription activated',
+              description: 'Redirecting to your dashboard…',
+            });
+            navigate('/dashboard', { replace: true });
+            return;
+          }
+
           toast({
-            title: 'Subscription activated',
-            description: 'Your paid plan is active. Head to the dashboard to stream.',
+            title: 'Payment received',
+            description: 'Your plan is activating. Use the dashboard button above when ready.',
           });
-          navigate('/dashboard');
           return;
         }
         toast({
@@ -79,7 +98,7 @@ export default function Pricing() {
         setConfirmingCheckout(false);
         clearCheckoutParams();
       });
-  }, [navigate, reload, searchParams, setSearchParams]);
+  }, [navigate, reload, searchParams, setSearchParams, user]);
 
   useEffect(() => {
     fetchActiveTiers()
@@ -88,12 +107,32 @@ export default function Pricing() {
       .finally(() => setLoading(false));
   }, []);
 
-  const handleGoToDashboard = () => {
+  useEffect(() => {
+    if (!user?.id) {
+      setStreamKeyCount(0);
+      return;
+    }
+    fetchUserStreamKeys(user.id)
+      .then((keys) => setStreamKeyCount(keys.length))
+      .catch(() => setStreamKeyCount(0));
+  }, [user?.id]);
+
+  const handleGoToDashboard = async () => {
     if (!isAuthenticated) {
       navigate('/register');
       return;
     }
-    if (isExpired && !hasAccess) {
+    if (checkoutComplete && !hasAccess) {
+      const access = await waitForSubscriptionAccess(user, { attempts: 4, delayMs: 500 });
+      await reload();
+      if (!access.hasAccess) {
+        toast({
+          title: 'Still activating',
+          description: 'Your payment went through. Wait a few seconds and try again.',
+        });
+        return;
+      }
+    } else if (isExpired && !hasAccess) {
       toast({
         title: 'Trial ended',
         description: 'Choose a plan below and click Subscribe with Stripe to restore access.',
@@ -101,18 +140,40 @@ export default function Pricing() {
       });
       return;
     }
-    navigate('/dashboard');
+    navigate('/dashboard', { replace: true });
   };
 
-  const handleTierAction = async (tier) => {
+  const handleTierActionRequest = (tier) => {
     if (!isAuthenticated) {
       navigate('/register');
       return;
     }
 
+    const action = getPlanChangeAction(tier, currentSortOrder, isPaid);
+    if (action === 'current') return;
+    setPendingPlanChange({ tier, action });
+  };
+
+  const handleConfirmPlanChange = async () => {
+    if (!pendingPlanChange?.tier) return;
+
+    const { tier, action } = pendingPlanChange;
     setCheckoutTierId(tier.id);
     try {
-      await createCheckoutSession(tier.id);
+      const result = await createCheckoutSession(tier.id);
+      if (result?.upgraded) {
+        await reload();
+        setPendingPlanChange(null);
+        toast({
+          title: action === 'downgrade' ? 'Plan changed' : 'Plan upgraded',
+          description:
+            action === 'downgrade'
+              ? `You're now on ${result.tierName}. Stripe credits unused time on your next invoice.`
+              : `You're now on ${result.tierName}. Stripe prorates the difference on your next invoice — no duplicate subscriptions.`,
+        });
+        setCheckoutTierId(null);
+        return;
+      }
     } catch (error) {
       toast({
         title: 'Checkout unavailable',
@@ -123,26 +184,74 @@ export default function Pricing() {
     }
   };
 
+  const showDashboardCta = isAuthenticated && (isPaid || checkoutComplete);
+
+  const currentTier =
+    tiers.find(
+      (tier) =>
+        subscription?.subscription_tier_id === tier.id ||
+        subscription?.tier_name === tier.name ||
+        planLabel === tier.name
+    ) || plan;
+
+  const currentSortOrder = currentTier?.sort_order ?? plan?.sort_order ?? -1;
+
+  const isCurrentTier = (tier) =>
+    subscription?.subscription_tier_id === tier.id ||
+    subscription?.tier_name === tier.name ||
+    planLabel === tier.name;
+
+  const isUpgradeTier = (tier) => tier.sort_order > currentSortOrder;
+  const isDowngradeTier = (tier) => isPaid && tier.sort_order < currentSortOrder;
+
   return (
-    <div className="min-h-screen bg-background py-16 px-4">
+    <div className="min-h-screen bg-background">
+      <PublicHeader />
+      <div className="py-16 px-4">
       <div className="max-w-5xl mx-auto">
+        {(showDashboardCta || checkoutComplete || (isAuthenticated && planLabel && planLabel !== 'Free trial')) && (
+          <div className="mb-8 rounded-2xl border border-primary/30 bg-primary/10 p-5 text-center">
+            <p className="text-foreground font-semibold">
+              {checkoutComplete
+                ? 'Subscription activated'
+                : planLabel
+                  ? `You're on ${planLabel}`
+                  : 'You have an active plan'}
+            </p>
+            <p className="text-sm text-muted-foreground mt-1">
+              Stream keys and embeds are ready in your dashboard.
+            </p>
+            <button
+              type="button"
+              onClick={handleGoToDashboard}
+              className="mt-4 inline-flex items-center justify-center px-6 py-3 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-colors"
+            >
+              Go to Dashboard
+            </button>
+          </div>
+        )}
+
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           className="text-center mb-12"
         >
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 border border-primary/20 text-primary text-sm font-medium mb-4">
-            <Zap className="w-4 h-4" /> Simple, transparent pricing
+            <Zap className="w-4 h-4" /> Church plans — affordable full package
           </div>
-          <h1 className="text-4xl font-bold font-heading text-foreground">Choose your plan</h1>
-          <p className="text-muted-foreground mt-3 text-lg">
+          <h1 className="text-4xl font-bold font-heading text-foreground">
+            Streaming your whole church can afford
+          </h1>
+          <p className="text-muted-foreground mt-3 text-lg max-w-2xl mx-auto">
             {isAuthenticated
               ? isPaid
-                ? 'Manage your plan or return to the dashboard.'
+                ? planLabel
+                  ? `You're on ${planLabel}. Most churches choose FaithGather for Sunday School, Morning, Evening, and Midweek.`
+                  : 'Upgrade below, or return to the dashboard.'
                 : isExpired
                   ? 'Your trial has ended. Subscribe below to restore streaming access.'
                   : 'Subscribe now, or continue your free trial from the dashboard.'
-              : 'All plans include a 10-day free trial. No credit card required to start.'}
+              : '10-day free trial on every plan. No credit card. One embed handles every service — extra stream keys only when two rooms are live at once.'}
           </p>
         </motion.div>
 
@@ -161,8 +270,13 @@ export default function Pricing() {
             Pricing plans are being configured. Check back soon!
           </p>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
-            {tiers.map((tier, index) => (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 items-start">
+            {tiers.map((tier, index) => {
+              const church = getChurchPlanPresentation(tier);
+              const isCurrent = isCurrentTier(tier);
+              const showBadge = church.badge || isCurrent;
+
+              return (
               <motion.div
                 key={tier.id}
                 initial={{ opacity: 0, y: 30 }}
@@ -174,16 +288,28 @@ export default function Pricing() {
                     : 'border-border/50 bg-card'
                 }`}
               >
-                {tier.is_popular && (
+                {showBadge && (
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                    <span className="px-3 py-1 rounded-full bg-primary text-primary-foreground text-xs font-semibold">
-                      Most Popular
+                    <span
+                      className={`px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${
+                        isCurrent
+                          ? 'bg-green-500 text-white'
+                          : 'bg-primary text-primary-foreground'
+                      }`}
+                    >
+                      {isCurrent ? 'Your plan' : church.badge || 'Most Popular'}
                     </span>
                   </div>
                 )}
                 <div className="mb-5">
-                  <h3 className="font-bold text-xl text-foreground font-heading">{tier.name}</h3>
-                  <p className="text-sm text-muted-foreground mt-1">{tier.description || ''}</p>
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
+                    {tier.name}
+                  </p>
+                  <h3 className="font-bold text-xl text-foreground font-heading">{church.displayName}</h3>
+                  <p className="text-sm text-muted-foreground mt-1">{church.tagline}</p>
+                  {church.idealFor && (
+                    <p className="text-xs text-primary/90 mt-2">{church.idealFor}</p>
+                  )}
                   <div className="mt-4 flex items-end gap-1">
                     <span className="text-4xl font-bold text-foreground">
                       ${Number(tier.monthly_price).toFixed(2).replace(/\.00$/, '')}
@@ -192,23 +318,8 @@ export default function Pricing() {
                   </div>
                 </div>
                 <div className="space-y-2.5 mb-6">
-                  <FeatureRow label={`${tier.max_bitrate_mbps || '?'} Mbps max bitrate`} />
-                  <FeatureRow
-                    label={`${(tier.max_concurrent_viewers || 0).toLocaleString()} concurrent viewers`}
-                  />
-                  <FeatureRow label={`${tier.storage_limit_gb || '?'} GB storage`} />
-                  <FeatureRow
-                    label={`${tier.max_stream_keys || 1} stream key${
-                      (tier.max_stream_keys || 1) > 1 ? 's' : ''
-                    }`}
-                  />
-                  <FeatureRow
-                    label={tier.has_watermark ? 'Watermark on videos' : 'No watermark'}
-                    ok={!tier.has_watermark}
-                  />
-                  <FeatureRow label={tier.support_level?.replace(/_/g, ' ') || 'Email support'} />
-                  {(tier.features || []).map((feature) => (
-                    <FeatureRow key={feature} label={feature} />
+                  {church.featureRows.map((label) => (
+                    <FeatureRow key={label} label={label} />
                   ))}
                 </div>
                 {isLoadingAuth || !authChecked ? (
@@ -216,22 +327,58 @@ export default function Pricing() {
                 ) : isAuthenticated ? (
                   <div className="space-y-2">
                     {isPaid ? (
-                      <button
-                        type="button"
-                        onClick={handleGoToDashboard}
-                        className={`block w-full text-center py-3 rounded-xl font-semibold text-sm transition-all ${
-                          tier.is_popular
-                            ? 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/20'
-                            : 'bg-secondary text-foreground hover:bg-secondary/80 border border-border'
-                        }`}
-                      >
-                        Go to Dashboard
-                      </button>
+                      isCurrentTier(tier) ? (
+                        <button
+                          type="button"
+                          onClick={handleGoToDashboard}
+                          className={`block w-full text-center py-3 rounded-xl font-semibold text-sm transition-all ${
+                            tier.is_popular
+                              ? 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/20'
+                              : 'bg-secondary text-foreground hover:bg-secondary/80 border border-border'
+                          }`}
+                        >
+                          Your plan — Dashboard
+                        </button>
+                      ) : isUpgradeTier(tier) ? (
+                        <button
+                          type="button"
+                          onClick={() => handleTierActionRequest(tier)}
+                          disabled={checkoutTierId === tier.id || confirmingCheckout}
+                          className={`block w-full text-center py-3 rounded-xl font-semibold text-sm transition-all disabled:opacity-60 ${
+                            tier.is_popular
+                              ? 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/20'
+                              : 'bg-secondary text-foreground hover:bg-secondary/80 border border-border'
+                          }`}
+                        >
+                          {checkoutTierId === tier.id
+                            ? 'Opening Stripe Checkout…'
+                            : `Upgrade — $${Number(tier.monthly_price).toFixed(2).replace(/\.00$/, '')}/mo`}
+                        </button>
+                      ) : isDowngradeTier(tier) ? (
+                        <button
+                          type="button"
+                          onClick={() => handleTierActionRequest(tier)}
+                          disabled={checkoutTierId === tier.id || confirmingCheckout}
+                          className="block w-full text-center py-3 rounded-xl font-semibold text-sm transition-all disabled:opacity-60 bg-secondary text-foreground hover:bg-secondary/80 border border-border"
+                        >
+                          {checkoutTierId === tier.id
+                            ? 'Processing…'
+                            : `Downgrade — $${Number(tier.monthly_price).toFixed(2).replace(/\.00$/, '')}/mo`}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled
+                          className="block w-full text-center py-3 rounded-xl font-semibold text-sm bg-secondary/40 text-muted-foreground border border-border/50 cursor-not-allowed"
+                        >
+                          Included in your plan
+                        </button>
+                      )
                     ) : (
                       <>
                         <button
                           type="button"
-                          onClick={() => handleTierAction(tier)}
+                          onClick={() => handleTierActionRequest(tier)}
                           disabled={checkoutTierId === tier.id || confirmingCheckout}
                           className={`block w-full text-center py-3 rounded-xl font-semibold text-sm transition-all disabled:opacity-60 ${
                             tier.is_popular
@@ -268,23 +415,47 @@ export default function Pricing() {
                   </Link>
                 )}
               </motion.div>
-            ))}
+            );
+            })}
+            <EnterprisePricingCard
+              isAuthenticated={isAuthenticated}
+              isPaid={isPaid}
+              planLabel={planLabel}
+            />
           </div>
         )}
 
-        <div className="mt-12 text-center text-sm text-muted-foreground">
-          <p>All plans include RTMP streaming, embeddable players, and live chat overlay.</p>
-          <p className="mt-1">
+        <div className="mt-12 text-center text-sm text-muted-foreground max-w-2xl mx-auto space-y-2">
+          <p>
+            <strong className="text-foreground">One embed</strong> on your site works for every
+            service. Extra stream keys are only for{' '}
+            <strong className="text-foreground">two rooms live at the same time</strong> (e.g.
+            sanctuary + Sunday School).
+          </p>
+          <p>All plans include RTMP streaming, embeddable players, chat, and moderation tools.</p>
+          <p>
             Questions?{' '}
             <a href={`mailto:${SUPPORT_EMAIL}`} className="text-primary hover:underline">
               Contact us
             </a>
           </p>
-          <p className="mt-2 text-xs">
-            Powered by {APP_NAME}
-          </p>
         </div>
       </div>
+      </div>
+
+      <PlanChangeConfirmDialog
+        open={Boolean(pendingPlanChange)}
+        onOpenChange={(open) => {
+          if (!open && !checkoutTierId) setPendingPlanChange(null);
+        }}
+        tier={pendingPlanChange?.tier}
+        action={pendingPlanChange?.action}
+        planLabel={planLabel}
+        plan={plan}
+        streamKeyCount={streamKeyCount}
+        onConfirm={handleConfirmPlanChange}
+        loading={Boolean(checkoutTierId)}
+      />
     </div>
   );
 }
@@ -297,5 +468,54 @@ function FeatureRow({ label, ok = true }) {
         {label}
       </span>
     </div>
+  );
+}
+
+function EnterprisePricingCard({ isAuthenticated, isPaid, planLabel }) {
+  const onPremium = planLabel === 'Premium';
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 30 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.35 }}
+      className="relative rounded-2xl border border-dashed border-border/80 bg-card/80 p-6"
+    >
+      {onPremium && (
+        <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+          <span className="px-3 py-1 rounded-full text-xs font-semibold bg-amber-500 text-white">
+            Need more keys?
+          </span>
+        </div>
+      )}
+      <div className="mb-5">
+        <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium">
+          Custom
+        </p>
+        <h3 className="font-bold text-xl text-foreground font-heading">FaithNetwork</h3>
+        <p className="text-sm text-muted-foreground mt-1">
+          Dioceses, networks, and multi-site ministries with custom limits and onboarding.
+        </p>
+        <div className="mt-4 flex items-end gap-1">
+          <span className="text-3xl font-bold text-foreground">Custom pricing</span>
+        </div>
+      </div>
+      <div className="space-y-2.5 mb-6">
+        {ENTERPRISE_PLAN.features.map((feature) => (
+          <FeatureRow key={feature} label={feature} />
+        ))}
+      </div>
+      <a
+        href={enterpriseMailto('Enterprise plan inquiry')}
+        className="block w-full text-center py-3 rounded-xl font-semibold text-sm transition-all bg-secondary text-foreground hover:bg-secondary/80 border border-border"
+      >
+        Contact us for pricing
+      </a>
+      {isAuthenticated && isPaid && onPremium && (
+        <p className="mt-3 text-center text-xs text-muted-foreground">
+          Premium includes up to 10 stream keys. Enterprise adds custom limits.
+        </p>
+      )}
+    </motion.div>
   );
 }

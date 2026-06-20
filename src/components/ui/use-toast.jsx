@@ -1,8 +1,9 @@
 // Inspired by react-hot-toast library
 import { useState, useEffect } from "react";
 
-const TOAST_LIMIT = 20;
-const TOAST_REMOVE_DELAY = 1000000;
+const TOAST_LIMIT = 4;
+const TOAST_REMOVE_DELAY = 300;
+const TOAST_DEFAULT_DURATION = 5000;
 
 const actionTypes = {
   ADD_TOAST: "ADD_TOAST",
@@ -63,12 +64,12 @@ export const reducer = (state, action) => {
     case actionTypes.DISMISS_TOAST: {
       const { toastId } = action;
 
-      // ! Side effects ! - This could be extracted into a dismissToast() action,
-      // but I'll keep it here for simplicity
       if (toastId) {
+        _clearFromRemoveQueue(toastId);
         addToRemoveQueue(toastId);
       } else {
         state.toasts.forEach((toast) => {
+          _clearFromRemoveQueue(toast.id);
           addToRemoveQueue(toast.id);
         });
       }
@@ -76,12 +77,7 @@ export const reducer = (state, action) => {
       return {
         ...state,
         toasts: state.toasts.map((t) =>
-          t.id === toastId || toastId === undefined
-            ? {
-                ...t,
-                open: false,
-              }
-            : t
+          t.id === toastId || toastId === undefined ? { ...t, open: false } : t
         ),
       };
     }
@@ -122,6 +118,8 @@ function toast({ ...props }) {
   const dismiss = () =>
     dispatch({ type: actionTypes.DISMISS_TOAST, toastId: id });
 
+  const duration = props.duration ?? TOAST_DEFAULT_DURATION;
+
   dispatch({
     type: actionTypes.ADD_TOAST,
     toast: {
@@ -133,6 +131,10 @@ function toast({ ...props }) {
       },
     },
   });
+
+  if (duration > 0) {
+    window.setTimeout(() => dismiss(), duration);
+  }
 
   return {
     id,

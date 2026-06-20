@@ -1,3 +1,14 @@
+/** Stable chat thread key for embed players (one thread per embed). */
+export function getEmbedChatSourceKey(embedId) {
+  const id = embedId != null ? String(embedId).trim() : '';
+  return id ? `embed:${id}` : null;
+}
+
+/** Primary chat key: embed id when available, otherwise source URL / stream identity. */
+export function getChatSourceKey(source, embedId = null) {
+  return getEmbedChatSourceKey(embedId) || getSourceKey(source);
+}
+
 /** One chat thread per loaded source URL / stream identity. */
 export function getSourceKey(source) {
   if (!source?.type) return null;
@@ -28,6 +39,9 @@ export function getSourceKey(source) {
   return null;
 }
 
-export function matchesSourceKey(storedKey, sourceKey) {
-  return !!storedKey && !!sourceKey && storedKey === sourceKey;
+export function matchesSourceKey(storedKey, sourceKey, legacySourceKey = null) {
+  if (!storedKey) return false;
+  if (sourceKey && storedKey === sourceKey) return true;
+  if (legacySourceKey && storedKey === legacySourceKey) return true;
+  return false;
 }

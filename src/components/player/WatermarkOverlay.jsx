@@ -6,18 +6,26 @@ const SIZE_CLASS = {
   large: 'text-sm px-3 py-1.5',
 };
 
-const POSITION_CLASS = {
-  top_left: 'top-3 left-3',
-  top_right: 'top-3 right-3',
-  bottom_left: 'bottom-14 left-3',
-  bottom_right: 'bottom-14 right-3',
-};
+function positionClass(position, embed) {
+  const bottom = embed
+    ? 'bottom-[max(0.75rem,env(safe-area-inset-bottom,0px))]'
+    : 'bottom-3 sm:bottom-14';
 
-export default function WatermarkOverlay({ watermark }) {
+  const map = {
+    top_left: 'top-[max(0.75rem,env(safe-area-inset-top,0px))] left-3 safe-area-pt',
+    top_right: 'top-[max(0.75rem,env(safe-area-inset-top,0px))] right-3 safe-area-pt safe-area-pr',
+    bottom_left: `${bottom} left-3 safe-area-pb`,
+    bottom_right: `${bottom} right-3 safe-area-pb safe-area-pr`,
+  };
+
+  return map[position] || map.bottom_right;
+}
+
+export default function WatermarkOverlay({ watermark, embed = false }) {
   if (!watermark?.enabled || !watermark?.text) return null;
 
   const size = SIZE_CLASS[watermark.size] || SIZE_CLASS.medium;
-  const position = POSITION_CLASS[watermark.position] || POSITION_CLASS.bottom_right;
+  const position = positionClass(watermark.position, embed);
 
   return (
     <div

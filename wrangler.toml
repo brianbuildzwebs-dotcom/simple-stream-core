@@ -8,6 +8,8 @@ workers_dev = true
 SUPABASE_URL = "https://hxtlrwibkdyirnvejfor.supabase.co"
 CLOUDFLARE_ACCOUNT_ID = "be90b9dfc7dfcf09a335189f4499ef4f"
 CLOUDFLARE_STREAM_CUSTOMER_CODE = "y6sra3bzw4qq91m8"
+CF_ACCESS_TEAM_DOMAIN = "https://green-morning-4703.cloudflareaccess.com"
+CF_ACCESS_AUD = "c0be6912a9528aab4e35bb803271a0619681361d15cb3a3041c629488da324cf"
 
 [assets]
 directory = "./dist"

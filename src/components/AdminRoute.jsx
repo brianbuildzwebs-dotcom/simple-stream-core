@@ -1,4 +1,5 @@
 import { Navigate, Outlet } from 'react-router-dom';
+import MfaGate from '@/components/auth/MfaGate';
 import { useAuth } from '@/lib/AuthContext';
 
 const Loading = () => (
@@ -22,5 +23,9 @@ export default function AdminRoute() {
     return <Navigate to="/" replace />;
   }
 
-  return <Outlet />;
+  return (
+    <MfaGate>
+      <Outlet />
+    </MfaGate>
+  );
 }

@@ -1,11 +1,27 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Radio, Copy, Check, ToggleLeft, ToggleRight, Trash2, RefreshCw, Eye } from 'lucide-react';
+import {
+  Plus,
+  Radio,
+  Copy,
+  Check,
+  ToggleLeft,
+  ToggleRight,
+  Trash2,
+  RefreshCw,
+  Eye,
+  Code2,
+} from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
-import { fetchUserStreamKeys } from '@/lib/subscription';
+import { useSubscription } from '@/hooks/useSubscription';
+import { hasEnterpriseRequest, streamKeyLimitMessage } from '@/lib/enterprise';
+import { submitEnterpriseRequest } from '@/lib/enterprise-api';
+import { SUPPORT_EMAIL } from '@/lib/brand';
 import {
   createStreamKey,
   deleteStreamKey,
+  fetchStreamKeys,
   refreshStreamKey,
   updateStreamKeyStatus,
 } from '@/lib/stream-keys-api';
@@ -93,7 +109,14 @@ function StreamKeyCard({ streamKey, onToggle, onRevoke, onRefresh }) {
           <Eye className="w-3.5 h-3.5" />
           <span>{streamKey.viewer_count || 0} viewers</span>
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
+          <Link
+            to={`/dashboard/embeds?stream_key_id=${encodeURIComponent(streamKey.id)}&name=${encodeURIComponent(streamKey.stream_name || 'Stream Player')}`}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 transition-colors border border-primary/20"
+          >
+            <Code2 className="w-3.5 h-3.5" />
+            Create Player
+          </Link>
           <button
             type="button"
             onClick={() => onRefresh(streamKey)}
@@ -117,28 +140,60 @@ function StreamKeyCard({ streamKey, onToggle, onRevoke, onRefresh }) {
 
 export default function StreamKeys() {
   const { user } = useAuth();
+  const { planLabel, plan, subscription, reload } = useSubscription(user);
   const [streamKeys, setStreamKeys] = useState([]);
+  const [keyLimit, setKeyLimit] = useState(1);
+  const [keyCount, setKeyCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
+  const [requestingEnterprise, setRequestingEnterprise] = useState(false);
 
-  const load = async (userId) => {
-    const keys = await fetchUserStreamKeys(userId);
+  const load = async () => {
+    const { streamKeys: keys, limit, count } = await fetchStreamKeys();
     setStreamKeys(keys);
+    setKeyLimit(limit);
+    setKeyCount(count);
     setLoading(false);
   };
 
   useEffect(() => {
     if (!user?.id) return;
-    load(user.id);
+    load().catch(() => setLoading(false));
   }, [user?.id]);
 
+  const atLimit = keyCount >= keyLimit;
+  const limitHelp = streamKeyLimitMessage(keyLimit, plan);
+  const enterpriseRequested = hasEnterpriseRequest(subscription);
+  const enterpriseOfferPending = Boolean(subscription?.enterprise_offer_tier_id);
+
+  const requestEnterprise = async () => {
+    setRequestingEnterprise(true);
+    try {
+      await submitEnterpriseRequest();
+      await reload();
+      toast({
+        title: 'Enterprise request sent',
+        description: 'We will prepare an offer on your Profile. No email is sent — check Profile soon.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Request failed',
+        description: error.message,
+        variant: 'destructive',
+      });
+    } finally {
+      setRequestingEnterprise(false);
+    }
+  };
+
   const createKey = async () => {
-    if (!newName.trim()) return;
+    if (!newName.trim() || atLimit) return;
     setCreating(true);
     try {
       const key = await createStreamKey(newName.trim());
       setStreamKeys((prev) => [key, ...prev]);
+      setKeyCount((prev) => prev + 1);
       setNewName('');
       toast({ title: 'Stream key created!' });
     } catch (error) {
@@ -167,6 +222,7 @@ export default function StreamKeys() {
     try {
       await deleteStreamKey(streamKey.id);
       setStreamKeys((prev) => prev.filter((k) => k.id !== streamKey.id));
+      setKeyCount((prev) => Math.max(0, prev - 1));
       toast({ title: 'Stream key deleted' });
     } catch (error) {
       toast({ title: 'Delete failed', description: error.message, variant: 'destructive' });
@@ -199,7 +255,71 @@ export default function StreamKeys() {
         <p className="text-sm text-muted-foreground mt-1">
           Connect OBS, vMix, or Streamlabs using Cloudflare Stream RTMPS credentials.
         </p>
+        <p className="text-xs text-muted-foreground mt-2">
+          {planLabel ? (
+            <>
+              <strong className="text-foreground">{planLabel}</strong> plan ·{' '}
+            </>
+          ) : null}
+          Using <strong className="text-foreground">{keyCount}</strong> of{' '}
+          <strong className="text-foreground">{keyLimit}</strong> stream key
+          {keyLimit === 1 ? '' : 's'}.
+        </p>
       </div>
+
+      {atLimit && (
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100/90 space-y-3">
+          <p>
+            {limitHelp.description} Delete an unused key or{' '}
+            {!limitHelp.isEnterprise && (
+              <Link to={limitHelp.href} className="font-medium text-amber-200 underline hover:text-white">
+                {limitHelp.cta}
+              </Link>
+            )}
+            {!limitHelp.isEnterprise && ' for more keys.'}
+            {limitHelp.isEnterprise &&
+              (enterpriseOfferPending
+                ? ' accept your Enterprise offer on Profile for more keys.'
+                : ' request Enterprise for more keys.')}
+          </p>
+          {limitHelp.isEnterprise && (
+            <>
+              {enterpriseOfferPending ? (
+                <p className="text-xs text-amber-100/90">
+                  Your Enterprise offer is ready.{' '}
+                  <Link to="/dashboard/profile" className="font-medium text-amber-200 underline hover:text-white">
+                    Open Profile to accept
+                  </Link>
+                  .
+                </p>
+              ) : enterpriseRequested ? (
+                <p className="text-xs text-amber-100/90">
+                  Request received. Watch your{' '}
+                  <Link to="/dashboard/profile" className="font-medium text-amber-200 underline hover:text-white">
+                    Profile
+                  </Link>{' '}
+                  for an approval banner — we do not send email for this step.
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={requestEnterprise}
+                  disabled={requestingEnterprise}
+                  className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+                >
+                  {requestingEnterprise ? 'Sending request…' : 'Request Enterprise upgrade'}
+                </button>
+              )}
+              <p className="text-[11px] text-amber-100/70">
+                Prefer email?{' '}
+                <a href={`mailto:${SUPPORT_EMAIL}`} className="underline hover:text-white">
+                  {SUPPORT_EMAIL}
+                </a>
+              </p>
+            </>
+          )}
+        </div>
+      )}
 
       <div className="bg-card rounded-2xl border border-border/50 p-4 flex gap-2">
         <input
@@ -212,7 +332,7 @@ export default function StreamKeys() {
         <button
           type="button"
           onClick={createKey}
-          disabled={creating || !newName.trim()}
+          disabled={creating || !newName.trim() || atLimit}
           className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
         >
           {creating ? (

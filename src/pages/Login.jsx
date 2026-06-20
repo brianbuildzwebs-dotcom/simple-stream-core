@@ -7,6 +7,8 @@ import { Label } from "@/components/ui/label";
 import { LogIn, Mail, Lock, Loader2 } from "lucide-react";
 import AuthLayout from "@/components/AuthLayout";
 import GoogleIcon from "@/components/GoogleIcon";
+import { authCallbackUrl } from "@/lib/auth-redirect";
+import { completeSignIn } from "@/lib/complete-sign-in";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -21,7 +23,7 @@ export default function Login() {
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-      window.location.href = "/dashboard";
+      await completeSignIn();
     } catch (err) {
       setError(err.message || "Invalid email or password");
     } finally {
@@ -31,11 +33,20 @@ export default function Login() {
 
   const handleGoogle = async () => {
     setError("");
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: `${window.location.origin}/dashboard` },
-    });
-    if (error) setError(error.message);
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: authCallbackUrl(),
+          queryParams: { prompt: "select_account" },
+        },
+      });
+      if (error) throw error;
+    } catch (err) {
+      setError(err.message || "Google sign-in failed");
+      setLoading(false);
+    }
   };
 
   return (
@@ -49,6 +60,15 @@ export default function Login() {
           <Link to="/register" className="text-primary font-medium hover:underline">
             Create one
           </Link>
+          <p className="mt-4 text-xs text-muted-foreground">
+            <Link to="/terms" className="hover:text-foreground hover:underline">
+              Terms of Use
+            </Link>
+            {" · "}
+            <Link to="/privacy" className="hover:text-foreground hover:underline">
+              Privacy Policy
+            </Link>
+          </p>
         </>
       }
     >
@@ -56,8 +76,13 @@ export default function Login() {
         variant="outline"
         className="w-full h-12 text-sm font-medium mb-6"
         onClick={handleGoogle}
+        disabled={loading}
       >
-        <GoogleIcon className="w-5 h-5 mr-2" />
+        {loading ? (
+          <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+        ) : (
+          <GoogleIcon className="w-5 h-5 mr-2" />
+        )}
         Continue with Google
       </Button>
 

@@ -11,7 +11,14 @@ const STATUS = {
   NO_URL: 'no_url',
 };
 
-const WAITING_MSG = 'Waiting for live stream…';
+const WAITING_FOR_FEED_TITLE = 'Waiting for live feed';
+const WAITING_FOR_FEED_BODY =
+  "The stream hasn't started yet. Chat with others while you wait — video will begin automatically when we go live.";
+const TAP_TO_JOIN_TITLE = 'Tap to join live stream';
+const TAP_TO_JOIN_BODY =
+  'Video starts automatically when the feed goes live. Feel free to open chat while you wait.';
+const FEED_POLL_MS = 5000;
+const CONNECTING_TIMEOUT_MS = 8000;
 
 function readHlsLiveFlag(hls) {
   const level = hls.levels?.[hls.currentLevel] ?? hls.levels?.[0];
@@ -26,6 +33,9 @@ function RtmpPlayer({
   hlsUrl,
   embed = false,
   viewerCount = 0,
+  videoFit = 'contain',
+  defaultVolume,
+  onAudiblePlayback,
   onPlayingChange,
   onLiveChange,
   onVideoReady,
@@ -58,6 +68,9 @@ function RtmpPlayer({
   });
   const [errorMsg, setErrorMsg] = useState('');
   const [awaitingClick, setAwaitingClick] = useState(deferUntilClick);
+  const [viewerReady, setViewerReady] = useState(false);
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
+  const connectingTimerRef = useRef(null);
 
   onPlayingChangeRef.current = onPlayingChange;
   onLiveChangeRef.current = onLiveChange;
@@ -67,13 +80,6 @@ function RtmpPlayer({
     onLiveChangeRef.current?.(live);
   }, []);
 
-  const markLive = useCallback(() => {
-    setAwaitingClick(false);
-    setStatus(STATUS.LIVE);
-    setErrorMsg('');
-    onPlayingChangeRef.current?.(true);
-  }, []);
-
   const destroyHls = useCallback(() => {
     if (hlsRef.current) {
       hlsRef.current.destroy();
@@ -81,33 +87,100 @@ function RtmpPlayer({
     }
   }, []);
 
-  const unlockPlayback = useCallback((video) => {
-    if (!video) return;
-    playbackUnlockedRef.current = true;
-    video.muted = true;
-    video.setAttribute('playsinline', '');
-    video.setAttribute('webkit-playsinline', 'true');
-    const attempt = video.play();
-    if (attempt?.catch) {
-      attempt.catch(() => {});
+  const applyAudibleVolume = useCallback(
+    (video) => {
+      if (!video || defaultVolume == null) return;
+      video.volume = defaultVolume;
+      video.muted = false;
+      onAudiblePlayback?.();
+    },
+    [defaultVolume, onAudiblePlayback]
+  );
+
+  const markWaitingForFeed = useCallback(() => {
+    setAwaitingClick(false);
+    setStatus(STATUS.WAITING);
+    setErrorMsg('');
+  }, []);
+
+  const clearConnectingTimer = useCallback(() => {
+    if (connectingTimerRef.current) {
+      window.clearTimeout(connectingTimerRef.current);
+      connectingTimerRef.current = null;
     }
   }, []);
+
+  const markLive = useCallback(() => {
+    const video = internalVideoRef.current;
+    if (!video || video.paused) return;
+    clearConnectingTimer();
+    setAwaitingClick(false);
+    setStatus(STATUS.LIVE);
+    setErrorMsg('');
+    setIsVideoPlaying(true);
+    onPlayingChangeRef.current?.(true);
+    applyAudibleVolume(video);
+  }, [applyAudibleVolume, clearConnectingTimer]);
+
+  const scheduleConnectingTimeout = useCallback(() => {
+    clearConnectingTimer();
+    connectingTimerRef.current = window.setTimeout(() => {
+      connectingTimerRef.current = null;
+      if (!playbackUnlockedRef.current) return;
+      const video = internalVideoRef.current;
+      if (video && !video.paused && video.readyState >= 2) return;
+      markWaitingForFeed();
+    }, CONNECTING_TIMEOUT_MS);
+  }, [clearConnectingTimer, markWaitingForFeed]);
+
+  const unlockPlayback = useCallback(
+    (video) => {
+      if (!video) return;
+      playbackUnlockedRef.current = true;
+      setViewerReady(true);
+      video.setAttribute('playsinline', '');
+      video.setAttribute('webkit-playsinline', 'true');
+      if (defaultVolume != null) {
+        video.volume = defaultVolume;
+        video.muted = false;
+      } else {
+        video.muted = true;
+      }
+      const attempt = video.play();
+      if (attempt?.then) {
+        attempt.then(() => applyAudibleVolume(video)).catch(() => {});
+      }
+    },
+    [applyAudibleVolume, defaultVolume]
+  );
 
   const tryStartPlayback = useCallback(
     (video) => {
       if (!video) return;
 
-      if (!video.paused) {
+      if (!video.paused && video.readyState >= 2) {
         markLive();
         return;
       }
 
       video
         .play()
-        .then(markLive)
+        .then(() => {
+          if (!video.paused && video.readyState >= 2) {
+            markLive();
+            return;
+          }
+          if (playbackUnlockedRef.current) {
+            markWaitingForFeed();
+          }
+        })
         .catch(() => {
           if (video.readyState >= 2) {
             markLive();
+            return;
+          }
+          if (playbackUnlockedRef.current) {
+            markWaitingForFeed();
             return;
           }
           setStatus(STATUS.WAITING);
@@ -116,7 +189,7 @@ function RtmpPlayer({
           playbackUnlockedRef.current = false;
         });
     },
-    [markLive]
+    [markLive, markWaitingForFeed]
   );
 
   const attachHls = useCallback(
@@ -151,12 +224,24 @@ function RtmpPlayer({
         hls.loadSource(url);
         hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          updateStreamLive(readHlsLiveFlag(hls));
+          const live = readHlsLiveFlag(hls);
+          updateStreamLive(live);
           tryPlay();
+          if (playbackUnlockedRef.current && video.paused && !live) {
+            markWaitingForFeed();
+          }
         });
         hls.on(Hls.Events.LEVEL_UPDATED, (_event, { details }) => {
           if (typeof details?.live === 'boolean') {
             updateStreamLive(details.live);
+            if (details.live && playbackUnlockedRef.current && video.paused) {
+              hls.startLoad(-1);
+              tryStartPlayback(video);
+              return;
+            }
+            if (!details.live && playbackUnlockedRef.current && video.paused) {
+              markWaitingForFeed();
+            }
           }
         });
         hls.on(Hls.Events.FRAG_BUFFERED, () => {
@@ -164,11 +249,20 @@ function RtmpPlayer({
             markLive();
             return;
           }
-          if (playbackUnlockedRef.current && video.paused) {
+          if (playbackUnlockedRef.current) {
             tryStartPlayback(video);
           }
         });
         hls.on(Hls.Events.ERROR, (_event, data) => {
+          if (playbackUnlockedRef.current) {
+            if (
+              data.type === Hls.ErrorTypes.NETWORK_ERROR ||
+              data.details === Hls.ErrorDetails.MANIFEST_LOAD_ERROR ||
+              data.details === Hls.ErrorDetails.MANIFEST_LOAD_TIMEOUT
+            ) {
+              markWaitingForFeed();
+            }
+          }
           if (!data.fatal) return;
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
             hls.startLoad();
@@ -190,15 +284,31 @@ function RtmpPlayer({
         video.addEventListener(
           'loadedmetadata',
           () => {
-            updateStreamLive(readNativeHlsLive(video));
+            const live = readNativeHlsLive(video);
+            updateStreamLive(live);
             tryPlay();
+            if (playbackUnlockedRef.current && video.paused && !live) {
+              markWaitingForFeed();
+            }
           },
           { once: true }
         );
         video.addEventListener('durationchange', () => {
-          updateStreamLive(readNativeHlsLive(video));
+          const live = readNativeHlsLive(video);
+          updateStreamLive(live);
+          if (live && playbackUnlockedRef.current && video.paused) {
+            tryStartPlayback(video);
+            return;
+          }
+          if (!live && playbackUnlockedRef.current && video.paused) {
+            markWaitingForFeed();
+          }
         });
         video.addEventListener('error', () => {
+          if (playbackUnlockedRef.current) {
+            markWaitingForFeed();
+            return;
+          }
           setStatus(STATUS.ERROR);
           setErrorMsg('Unable to load stream.');
         }, { once: true });
@@ -208,7 +318,32 @@ function RtmpPlayer({
       setStatus(STATUS.ERROR);
       setErrorMsg('HLS playback is not supported in this browser.');
     },
-    [deferUntilClick, destroyHls, tryStartPlayback, updateStreamLive]
+    [deferUntilClick, destroyHls, markLive, markWaitingForFeed, tryStartPlayback, updateStreamLive]
+  );
+
+  const reloadFeed = useCallback(
+    (video) => {
+      if (!video || !hlsUrl) return;
+
+      const cacheBustedUrl = hlsUrl.includes('?')
+        ? `${hlsUrl}&_ssz=${Date.now()}`
+        : `${hlsUrl}?_ssz=${Date.now()}`;
+
+      if (hlsRef.current) {
+        hlsRef.current.loadSource(cacheBustedUrl);
+        hlsRef.current.startLoad(-1);
+        return;
+      }
+
+      if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = cacheBustedUrl;
+        video.load();
+        return;
+      }
+
+      attachHls(video, hlsUrl, { autoPlay: true });
+    },
+    [attachHls, hlsUrl]
   );
 
   useLayoutEffect(() => {
@@ -218,6 +353,9 @@ function RtmpPlayer({
       destroyHls();
       updateStreamLive(false);
       playbackUnlockedRef.current = false;
+      setViewerReady(false);
+      setIsVideoPlaying(false);
+      clearConnectingTimer();
       if (!hlsUrl) setStatus(STATUS.NO_URL);
       return undefined;
     }
@@ -229,24 +367,45 @@ function RtmpPlayer({
     if (deferUntilClick) {
       setAwaitingClick(true);
       playbackUnlockedRef.current = false;
+      setViewerReady(false);
+      setIsVideoPlaying(false);
     }
 
     setStatus(STATUS.LOADING);
     setErrorMsg('');
     attachHls(video, hlsUrl, { autoPlay: !deferUntilClick });
 
-    const onPlaying = () => onPlayingChangeRef.current?.(true);
-    const onPausing = () => onPlayingChangeRef.current?.(false);
-    video.addEventListener('play', onPlaying);
+    const onPlaying = () => {
+      setIsVideoPlaying(true);
+      onPlayingChangeRef.current?.(true);
+      if (playbackUnlockedRef.current) {
+        markLive();
+      }
+    };
+    const onPausing = () => {
+      setIsVideoPlaying(false);
+      onPlayingChangeRef.current?.(false);
+    };
+    video.addEventListener('playing', onPlaying);
     video.addEventListener('pause', onPausing);
 
     return () => {
-      video.removeEventListener('play', onPlaying);
+      video.removeEventListener('playing', onPlaying);
       video.removeEventListener('pause', onPausing);
+      clearConnectingTimer();
       destroyHls();
       activeUrlRef.current = '';
     };
-  }, [hlsUrl, deferUntilClick, attachHls, destroyHls, updateStreamLive]);
+  }, [
+    hlsUrl,
+    deferUntilClick,
+    attachHls,
+    destroyHls,
+    updateStreamLive,
+    markLive,
+    markWaitingForFeed,
+    clearConnectingTimer,
+  ]);
 
   const handleStartClick = useCallback(() => {
     const video = internalVideoRef.current;
@@ -256,14 +415,44 @@ function RtmpPlayer({
     setStatus(STATUS.LOADING);
     setErrorMsg('');
     unlockPlayback(video);
+    scheduleConnectingTimeout();
 
     if (!hlsRef.current || activeUrlRef.current !== hlsUrl) {
       attachHls(video, hlsUrl, { autoPlay: true });
       return;
     }
 
+    reloadFeed(video);
     tryStartPlayback(video);
-  }, [attachHls, hlsUrl, tryStartPlayback, unlockPlayback]);
+  }, [
+    attachHls,
+    hlsUrl,
+    reloadFeed,
+    scheduleConnectingTimeout,
+    tryStartPlayback,
+    unlockPlayback,
+  ]);
+
+  useEffect(() => {
+    if (!viewerReady || !hlsUrl) return undefined;
+
+    const pollForLiveFeed = () => {
+      const video = internalVideoRef.current;
+      if (!video || !playbackUnlockedRef.current) return;
+      if (!video.paused && video.readyState >= 2) return;
+
+      markWaitingForFeed();
+      reloadFeed(video);
+      tryStartPlayback(video);
+    };
+
+    const kickoff = window.setTimeout(pollForLiveFeed, 1200);
+    const interval = window.setInterval(pollForLiveFeed, FEED_POLL_MS);
+    return () => {
+      window.clearTimeout(kickoff);
+      window.clearInterval(interval);
+    };
+  }, [viewerReady, hlsUrl, markWaitingForFeed, reloadFeed, tryStartPlayback]);
 
   useEffect(() => {
     onUserStartRequiredChange?.(deferUntilClick && awaitingClick);
@@ -289,41 +478,51 @@ function RtmpPlayer({
   }
 
   const showTapToPlay = deferUntilClick && awaitingClick;
+  const showWaitingOverlay =
+    viewerReady && !showTapToPlay && status !== STATUS.ERROR && !isVideoPlaying;
   const showLoadingOverlay =
-    !showTapToPlay && status !== STATUS.ERROR && (status === STATUS.LOADING || status === STATUS.WAITING);
+    viewerReady && !showTapToPlay && !showWaitingOverlay && status === STATUS.LOADING;
 
   return (
     <div className="absolute inset-0">
       <video
         ref={setVideoRef}
-        className="absolute inset-0 w-full h-full object-contain bg-black"
+        className={`absolute inset-0 w-full h-full bg-black ${videoFit === 'cover' ? 'object-cover' : 'object-contain'}`}
         playsInline
         muted
         preload="auto"
       />
       {showTapToPlay && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/70">
+        <div className="rtmp-tap-overlay absolute inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
           <button
             type="button"
             onClick={handleStartClick}
-            className="flex max-w-xs flex-col items-center px-6 py-4 text-center text-white touch-manipulation"
+            className="flex w-full max-w-[17.5rem] flex-col items-center px-4 py-4 text-center text-white touch-manipulation"
             aria-label="Play live stream"
           >
-            <span className="mb-3 flex h-20 w-20 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95">
-              <Play className="ml-0.5 h-8 w-8" />
+            <span className="embed-tap-play-btn mb-3 flex items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95">
+              <Play className="ml-0.5" />
             </span>
-            <span className="text-sm font-medium">Tap to play live stream</span>
-            {status === STATUS.LOADING && (
-              <span className="mt-2 text-xs text-white/60">Connecting…</span>
-            )}
+            <span className="embed-tap-play-title font-medium">{TAP_TO_JOIN_TITLE}</span>
+            <span className="embed-tap-play-subtitle mt-2 text-white/65">{TAP_TO_JOIN_BODY}</span>
           </button>
+        </div>
+      )}
+      {showWaitingOverlay && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/80 px-6">
+          <div className="max-w-sm text-center text-white">
+            <Radio className="mx-auto mb-3 h-9 w-9 text-primary" />
+            <p className="text-base font-semibold">{WAITING_FOR_FEED_TITLE}</p>
+            <p className="mt-2 text-sm leading-relaxed text-white/70">{WAITING_FOR_FEED_BODY}</p>
+            <p className="mt-3 text-xs text-white/45">Checking for live feed every few seconds…</p>
+          </div>
         </div>
       )}
       {showLoadingOverlay && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/70">
           <div className="px-4 text-center text-white">
             <Loader2 className="mx-auto mb-2 h-8 w-8 animate-spin text-primary" />
-            <p className="text-sm font-medium">{WAITING_MSG}</p>
+            <p className="text-sm font-medium">Connecting…</p>
           </div>
         </div>
       )}

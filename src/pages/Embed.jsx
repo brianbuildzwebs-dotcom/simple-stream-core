@@ -1,24 +1,30 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
 import VideoPlayer from '@/components/player/VideoPlayer';
 import { usePlayerSettings } from '@/hooks/usePlayerSettings';
 import { parseEmbedSource } from '@/lib/embed-params';
-import { fetchEmbedConfig, logEmbedView } from '@/lib/embeds';
+import { fetchEmbedConfig, logEmbedView, normalizeTrackingCode } from '@/lib/embeds';
+import { isEmbedMobileViewport } from '@/lib/embed-resize';
 
-function parseEmbedOptions(search = '') {
+function parseEmbedOptions(search = '', pathCode = '') {
   const params = new URLSearchParams(search);
   const fullscreenMode = params.get('fs') === '1';
+  const trackingCode =
+    normalizeTrackingCode(pathCode) || normalizeTrackingCode(params.get('code') || '');
   return {
     chatEnabled: !fullscreenMode && params.get('chat') !== '0',
     fullscreenMode,
-    trackingCode: params.get('code')?.trim() || null,
+    trackingCode: trackingCode || null,
   };
 }
 
 export default function Embed() {
+  const { trackingCode: pathCode = '' } = useParams();
   const search = typeof window !== 'undefined' ? window.location.search : '';
-  const embedOptions = useMemo(() => parseEmbedOptions(search), [search]);
+  const embedOptions = useMemo(() => parseEmbedOptions(search, pathCode), [search, pathCode]);
   const [source, setSource] = useState(() => (embedOptions.trackingCode ? null : parseEmbedSource(search)));
   const [watermark, setWatermark] = useState(null);
+  const [chatMeta, setChatMeta] = useState(null);
   const [loadError, setLoadError] = useState(null);
   const [loadingCode, setLoadingCode] = useState(!!embedOptions.trackingCode);
   const { settings, loading } = usePlayerSettings();
@@ -35,11 +41,23 @@ export default function Embed() {
         if (cancelled) return;
         setSource(config.source);
         setWatermark(config.watermark?.enabled ? config.watermark : null);
+        setChatMeta({
+          ownerUserId: config.ownerUserId || null,
+          embedId: config.embedId || null,
+          chatEnabled: config.chatEnabled !== false,
+        });
         logEmbedView(embedOptions.trackingCode);
       })
       .catch((error) => {
         if (cancelled) return;
-        setLoadError(error.message || 'Failed to load embed');
+        const codeHint = embedOptions.trackingCode
+          ? ` (code: ${embedOptions.trackingCode})`
+          : '';
+        setLoadError(
+          (error.message || 'Failed to load embed') +
+            codeHint +
+            '. Open Embed Manager, confirm the player exists, and copy a fresh embed code.'
+        );
         setSource(null);
       })
       .finally(() => {
@@ -53,7 +71,10 @@ export default function Embed() {
 
   const mergedSettings = {
     ...settings,
-    chat_enabled: embedOptions.chatEnabled && settings.chat_enabled !== false,
+    chat_enabled:
+      embedOptions.chatEnabled &&
+      settings.chat_enabled !== false &&
+      (chatMeta?.chatEnabled !== false || !embedOptions.trackingCode),
   };
 
   useEffect(() => {
@@ -61,15 +82,26 @@ export default function Embed() {
     if (embedOptions.fullscreenMode) {
       document.documentElement.classList.add('embed-fs-mode');
     }
+
+    const syncMobileClass = () => {
+      document.documentElement.classList.toggle('embed-mobile', isEmbedMobileViewport());
+    };
+    syncMobileClass();
+    window.addEventListener('resize', syncMobileClass);
+    window.addEventListener('orientationchange', syncMobileClass);
+
     return () => {
       document.documentElement.classList.remove('embed-route');
       document.documentElement.classList.remove('embed-fs-mode');
+      document.documentElement.classList.remove('embed-mobile');
+      window.removeEventListener('resize', syncMobileClass);
+      window.removeEventListener('orientationchange', syncMobileClass);
     };
   }, [embedOptions.fullscreenMode]);
 
   if (loadingCode) {
     return (
-      <div className="embed-player-shell flex h-[100dvh] w-full items-center justify-center bg-black text-white/70 text-sm">
+      <div className="embed-player-shell flex w-full aspect-video items-center justify-center bg-black text-white/70 text-sm">
         Loading player…
       </div>
     );
@@ -77,18 +109,20 @@ export default function Embed() {
 
   if (loadError) {
     return (
-      <div className="embed-player-shell flex h-[100dvh] w-full items-center justify-center bg-black text-red-300 text-sm px-6 text-center">
+      <div className="embed-player-shell flex w-full aspect-video items-center justify-center bg-black text-red-300 text-sm px-6 text-center">
         {loadError}
       </div>
     );
   }
 
   return (
-    <div className="embed-player-shell flex h-[100dvh] w-full max-w-[100vw] flex-col overflow-hidden bg-black supports-[min-height:100dvh]:min-h-[100dvh]">
+    <div className="embed-player-shell w-full min-w-full max-w-full bg-black">
       <VideoPlayer
         source={source}
         embed
         watermark={watermark}
+        chatOwnerId={chatMeta?.ownerUserId || null}
+        embedId={chatMeta?.embedId || null}
         settings={loading ? { chat_enabled: embedOptions.chatEnabled } : mergedSettings}
       />
     </div>

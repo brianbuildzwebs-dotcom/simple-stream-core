@@ -13,16 +13,44 @@ import {
 import { resolveEmbedConfig, recordEmbedView } from './_shared/embed-config.mjs';
 import {
   assertPlatformAccess,
+  resolveOwnerWatermarkPolicy,
   SubscriptionAccessError,
 } from './_shared/subscription-access.mjs';
 import {
+  getAdminLegalAcceptanceEvents,
+  getAdminPlatformStats,
+  getAdminUsers,
+  verifyAdminUser,
+} from './_shared/admin-access.mjs';
+import {
+  acceptEnterpriseOffer,
+  declineEnterpriseOffer,
+  getEnterpriseOfferForUser,
+  clearEnterpriseOffer,
+  offerEnterpriseUpgrade,
+  submitEnterpriseRequest,
+} from './_shared/enterprise-offers.mjs';
+import {
+  isValidStripeSecretKey,
+  normalizeStripeSecretKey,
+} from './_shared/stripe-secrets.mjs';
+import { deleteUserAccount } from './_shared/account-deletion.mjs';
+import { recordLegalAcceptanceEvent } from './_shared/legal-acceptance.mjs';
+import {
+  cancelUserSubscription,
+  createBillingPortalSession,
+} from './_shared/subscription-billing.mjs';
+import {
   activateFromCheckoutSession,
   handleStripeWebhookEvent,
+  syncUserSubscriptionFromStripe,
+  tryUpgradeStripeSubscription,
   verifyStripeWebhookSignature,
 } from './_shared/stripe-webhook.mjs';
 import {
   countUserStreamKeys,
   getUserStreamKeyLimit,
+  getUserStreamKeyUsage,
   supabaseDelete,
   supabaseInsert,
   supabaseSelect,
@@ -47,6 +75,7 @@ const EMBED_PATCH_FIELDS = new Set([
   'watermark_size',
   'watermark_opacity',
   'is_active',
+  'chat_enabled',
 ]);
 
 async function assertUserStreamKey(env, userId, streamKeyId) {
@@ -62,6 +91,7 @@ async function assertUserStreamKey(env, userId, streamKeyId) {
 }
 
 function authConfigStatus(env) {
+  const stripeKey = normalizeStripeSecretKey(env.STRIPE_SECRET_KEY);
   return {
     supabase_url: Boolean(env.SUPABASE_URL?.trim()),
     supabase_anon_key: Boolean(env.SUPABASE_ANON_KEY?.trim()),
@@ -69,7 +99,9 @@ function authConfigStatus(env) {
     cloudflare_stream: Boolean(
       env.CLOUDFLARE_ACCOUNT_ID?.trim() && env.CLOUDFLARE_API_TOKEN?.trim()
     ),
-    stripe_checkout: Boolean(env.STRIPE_SECRET_KEY?.trim()),
+    stripe_checkout: Boolean(stripeKey),
+    stripe_key_format_valid: isValidStripeSecretKey(stripeKey),
+    stripe_key_prefix: stripeKey ? `${stripeKey.slice(0, 12)}...` : null,
     stripe_webhook: Boolean(env.STRIPE_WEBHOOK_SECRET?.trim()),
   };
 }
@@ -130,6 +162,13 @@ function unauthorizedResponse(reason) {
     );
   }
 
+  if (reason === 'missing_access_jwt' || reason === 'invalid_access_jwt') {
+    return Response.json(
+      { error: 'Cloudflare Access required', code: reason },
+      { status: 403, headers: CORS }
+    );
+  }
+
   return Response.json({ error: 'Unauthorized', code: reason || 'unauthorized' }, { status: 401, headers: CORS });
 }
 
@@ -153,14 +192,15 @@ async function fetchSubscriptionTier(tierId, env) {
   return tiers?.[0] ?? null;
 }
 
-async function createStripeCheckoutSession({ tier, user, successUrl, cancelUrl }, env) {
-  const stripeKey = env.STRIPE_SECRET_KEY?.trim();
+async function createStripeCheckoutSession({ tier, user, successUrl, cancelUrl, customerId }, env) {
+  const stripeKey = normalizeStripeSecretKey(env.STRIPE_SECRET_KEY);
   if (!stripeKey) {
     throw new Error('Stripe is not configured');
   }
-  if (!/^sk_(test|live)_/.test(stripeKey)) {
+  if (!isValidStripeSecretKey(stripeKey)) {
+    const prefix = stripeKey.slice(0, 16);
     throw new Error(
-      'STRIPE_SECRET_KEY is misconfigured. Run: npx wrangler secret put STRIPE_SECRET_KEY — then paste only your sk_test_... key from Stripe (not the command name).'
+      `STRIPE_SECRET_KEY is misconfigured (stored value starts with "${prefix}..."). Run: powershell -File scripts/fix-stripe-secret-key.ps1 — paste only your sk_test_... Secret key from Stripe Developers → API keys.`
     );
   }
 
@@ -174,9 +214,12 @@ async function createStripeCheckoutSession({ tier, user, successUrl, cancelUrl }
     'metadata[tier_name]': tier.name,
     'subscription_data[metadata][user_id]': user.id,
     'subscription_data[metadata][tier_id]': tier.id,
+    'subscription_data[metadata][tier_name]': tier.name,
   });
 
-  if (user.email) {
+  if (customerId) {
+    params.set('customer', customerId);
+  } else if (user.email) {
     params.set('customer_email', user.email);
   }
 
@@ -197,7 +240,7 @@ async function createStripeCheckoutSession({ tier, user, successUrl, cancelUrl }
   const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
+      Authorization: `Bearer ${stripeKey}`,
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body: params,
@@ -214,6 +257,175 @@ async function createStripeCheckoutSession({ tier, user, successUrl, cancelUrl }
 const handler = {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    if (
+      url.pathname === '/api/admin/stats' ||
+      url.pathname === '/api/admin/users' ||
+      url.pathname === '/api/admin/legal-acceptance'
+    ) {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: CORS });
+      }
+      if (request.method !== 'GET') {
+        return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
+      }
+
+      try {
+        const { user, reason } = await verifyAdminUser(request, env, verifySupabaseUser);
+        if (!user) {
+          if (reason === 'forbidden') {
+            return Response.json({ error: 'Forbidden' }, { status: 403, headers: CORS });
+          }
+          return unauthorizedResponse(reason);
+        }
+
+        if (url.pathname === '/api/admin/stats') {
+          const stats = await getAdminPlatformStats(env);
+          return Response.json(stats, { headers: CORS });
+        }
+
+        if (url.pathname === '/api/admin/legal-acceptance') {
+          const payload = await getAdminLegalAcceptanceEvents(env, {
+            status: url.searchParams.get('status') || 'all',
+            email: url.searchParams.get('email') || '',
+            userId: url.searchParams.get('userId') || '',
+            limit: url.searchParams.get('limit') || 100,
+          });
+          return Response.json(payload, { headers: CORS });
+        }
+
+        const payload = await getAdminUsers(env);
+        return Response.json(payload, { headers: CORS });
+      } catch (error) {
+        Sentry.captureException(error);
+        return Response.json(
+          { error: error.message || 'admin_request_failed' },
+          { status: 500, headers: CORS }
+        );
+      }
+    }
+
+    if (url.pathname === '/api/admin/enterprise-offer') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: CORS });
+      }
+      if (request.method !== 'POST') {
+        return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
+      }
+
+      try {
+        const { user, reason } = await verifyAdminUser(request, env, verifySupabaseUser);
+        if (!user) {
+          if (reason === 'forbidden') {
+            return Response.json({ error: 'Forbidden' }, { status: 403, headers: CORS });
+          }
+          return unauthorizedResponse(reason);
+        }
+
+        const body = await request.json().catch(() => ({}));
+        const targetUserId = (body.user_id || '').trim();
+        const action = (body.action || 'offer').trim();
+
+        if (!targetUserId) {
+          return Response.json({ error: 'user_id is required' }, { status: 400, headers: CORS });
+        }
+
+        if (action === 'cancel') {
+          const subscription = await clearEnterpriseOffer(env, targetUserId);
+          return Response.json({ subscription }, { headers: CORS });
+        }
+
+        const tierId = (body.tier_id || '').trim();
+        const note = (body.note || '').trim();
+
+        if (!tierId) {
+          return Response.json({ error: 'tier_id is required' }, { status: 400, headers: CORS });
+        }
+
+        const result = await offerEnterpriseUpgrade(env, {
+          userId: targetUserId,
+          tierId,
+          note,
+        });
+
+        return Response.json(result, { headers: CORS });
+      } catch (error) {
+        Sentry.captureException(error);
+        return Response.json(
+          { error: error.message || 'enterprise_offer_failed' },
+          { status: 500, headers: CORS }
+        );
+      }
+    }
+
+    if (url.pathname === '/api/enterprise-request') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: CORS });
+      }
+      if (request.method !== 'POST') {
+        return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
+      }
+
+      try {
+        const { user, reason } = await verifySupabaseUser(request, env);
+        if (!user) {
+          return unauthorizedResponse(reason);
+        }
+
+        const body = await request.json().catch(() => ({}));
+        const result = await submitEnterpriseRequest(env, user.id, body.note || '');
+        return Response.json(result, { headers: CORS });
+      } catch (error) {
+        Sentry.captureException(error);
+        return Response.json(
+          { error: error.message || 'enterprise_request_failed' },
+          { status: 500, headers: CORS }
+        );
+      }
+    }
+
+    if (url.pathname === '/api/enterprise-offer') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: CORS });
+      }
+
+      try {
+        const { user, reason } = await verifySupabaseUser(request, env);
+        if (!user) {
+          return unauthorizedResponse(reason);
+        }
+
+        if (request.method === 'GET') {
+          const payload = await getEnterpriseOfferForUser(env, user.id);
+          return Response.json(payload, { headers: CORS });
+        }
+
+        if (request.method === 'POST') {
+          const body = await request.json().catch(() => ({}));
+          const action = body.action;
+
+          if (action === 'accept') {
+            const result = await acceptEnterpriseOffer(env, user.id);
+            return Response.json(result, { headers: CORS });
+          }
+
+          if (action === 'decline') {
+            const result = await declineEnterpriseOffer(env, user.id);
+            return Response.json(result, { headers: CORS });
+          }
+
+          return Response.json({ error: 'action must be accept or decline' }, { status: 400, headers: CORS });
+        }
+
+        return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
+      } catch (error) {
+        Sentry.captureException(error);
+        return Response.json(
+          { error: error.message || 'enterprise_offer_failed' },
+          { status: 500, headers: CORS }
+        );
+      }
+    }
 
     if (url.pathname === '/api/auth/status') {
       if (request.method === 'OPTIONS') {
@@ -257,6 +469,31 @@ const handler = {
       }
     }
 
+    if (url.pathname === '/api/stripe/sync') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: CORS });
+      }
+      if (request.method !== 'POST') {
+        return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
+      }
+
+      try {
+        const { user, reason } = await verifySupabaseUser(request, env);
+        if (!user) {
+          return unauthorizedResponse(reason);
+        }
+
+        const result = await syncUserSubscriptionFromStripe(user, env);
+        return Response.json(result, { headers: CORS });
+      } catch (error) {
+        Sentry.captureException(error);
+        return Response.json(
+          { error: error.message || 'stripe_sync_failed' },
+          { status: 500, headers: CORS }
+        );
+      }
+    }
+
     if (url.pathname === '/api/stripe/confirm') {
       if (request.method === 'OPTIONS') {
         return new Response(null, { headers: CORS });
@@ -276,12 +513,13 @@ const handler = {
         if (!sessionId) {
           return Response.json({ error: 'sessionId is required' }, { status: 400, headers: CORS });
         }
-        if (!env.STRIPE_SECRET_KEY) {
+        const stripeKey = normalizeStripeSecretKey(env.STRIPE_SECRET_KEY);
+        if (!stripeKey || !isValidStripeSecretKey(stripeKey)) {
           return Response.json({ error: 'Stripe is not configured' }, { status: 503, headers: CORS });
         }
 
         const response = await fetch(`https://api.stripe.com/v1/checkout/sessions/${sessionId}`, {
-          headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` },
+          headers: { Authorization: `Bearer ${stripeKey}` },
         });
         const session = await response.json();
         if (!response.ok) {
@@ -303,6 +541,130 @@ const handler = {
         Sentry.captureException(error);
         return Response.json(
           { error: error.message || 'confirm_failed' },
+          { status: 500, headers: CORS }
+        );
+      }
+    }
+
+    if (url.pathname === '/api/stripe/portal') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: CORS });
+      }
+      if (request.method !== 'POST') {
+        return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
+      }
+
+      try {
+        const { user, reason } = await verifySupabaseUser(request, env);
+        if (!user) {
+          return unauthorizedResponse(reason);
+        }
+
+        const body = await request.json().catch(() => ({}));
+        const returnUrl =
+          (body.returnUrl || '').trim() ||
+          `${new URL(request.url).origin}/dashboard/profile?billing=return`;
+
+        const session = await createBillingPortalSession(user, env, returnUrl);
+        return Response.json(session, { headers: CORS });
+      } catch (error) {
+        Sentry.captureException(error);
+        return Response.json(
+          { error: error.message || 'billing_portal_failed' },
+          { status: 500, headers: CORS }
+        );
+      }
+    }
+
+    if (url.pathname === '/api/subscription/cancel') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: CORS });
+      }
+      if (request.method !== 'POST') {
+        return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
+      }
+
+      try {
+        const { user, reason } = await verifySupabaseUser(request, env);
+        if (!user) {
+          return unauthorizedResponse(reason);
+        }
+
+        const body = await request.json().catch(() => ({}));
+        const immediate = body.immediate === true;
+
+        const result = await cancelUserSubscription(user, env, { immediate });
+        return Response.json(result, { headers: CORS });
+      } catch (error) {
+        Sentry.captureException(error);
+        return Response.json(
+          { error: error.message || 'subscription_cancel_failed' },
+          { status: 500, headers: CORS }
+        );
+      }
+    }
+
+    if (url.pathname === '/api/legal/accept') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: CORS });
+      }
+      if (request.method !== 'POST') {
+        return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
+      }
+
+      try {
+        const { user, reason } = await verifySupabaseUser(request, env);
+        if (!user) {
+          return unauthorizedResponse(reason);
+        }
+
+        const body = await request.json().catch(() => ({}));
+        const result = await recordLegalAcceptanceEvent(env, {
+          user,
+          request,
+          termsVersion: body.termsVersion,
+          privacyVersion: body.privacyVersion,
+          acceptanceMethod: body.acceptanceMethod,
+        });
+        return Response.json(result, { headers: CORS });
+      } catch (error) {
+        Sentry.captureException(error);
+        return Response.json(
+          { error: error.message || 'legal_accept_failed' },
+          { status: 500, headers: CORS }
+        );
+      }
+    }
+
+    if (url.pathname === '/api/account/delete') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: CORS });
+      }
+      if (request.method !== 'POST') {
+        return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
+      }
+
+      try {
+        const { user, reason } = await verifySupabaseUser(request, env);
+        if (!user) {
+          return unauthorizedResponse(reason);
+        }
+
+        const body = await request.json().catch(() => ({}));
+        const confirmPhrase = String(body.confirmPhrase || '').trim().toUpperCase();
+        if (confirmPhrase !== 'DELETE') {
+          return Response.json(
+            { error: 'Type DELETE to confirm account deletion' },
+            { status: 400, headers: CORS }
+          );
+        }
+
+        const result = await deleteUserAccount(user, env);
+        return Response.json(result, { headers: CORS });
+      } catch (error) {
+        Sentry.captureException(error);
+        return Response.json(
+          { error: error.message || 'account_delete_failed' },
           { status: 500, headers: CORS }
         );
       }
@@ -334,8 +696,31 @@ const handler = {
           return Response.json({ error: 'Subscription tier not found' }, { status: 404, headers: CORS });
         }
 
+        const upgrade = await tryUpgradeStripeSubscription(env, user, tier);
+        if (upgrade.upgraded) {
+          return Response.json(
+            {
+              upgraded: true,
+              tierName: upgrade.tierName,
+              subscription: upgrade.subscription,
+            },
+            { headers: CORS }
+          );
+        }
+
+        const existingRows = await supabaseSelect(
+          env,
+          'user_subscriptions',
+          `user_id=eq.${user.id}&select=stripe_customer_id`
+        );
         const session = await createStripeCheckoutSession(
-          { tier, user, successUrl, cancelUrl },
+          {
+            tier,
+            user,
+            successUrl,
+            cancelUrl,
+            customerId: existingRows?.[0]?.stripe_customer_id || null,
+          },
           env
         );
 
@@ -380,7 +765,11 @@ const handler = {
               };
             })
           );
-          return Response.json({ stream_keys: streamKeys }, { headers: CORS });
+          const usage = await getUserStreamKeyUsage(env, user.id);
+          return Response.json(
+            { stream_keys: streamKeys, ...usage },
+            { headers: CORS }
+          );
         }
 
         if (request.method === 'POST') {
@@ -405,8 +794,16 @@ const handler = {
           ]);
 
           if (count >= limit) {
+            const limitMessage =
+              limit >= 10
+                ? 'Stream key limit reached. Contact us at support@simplestreamz.com for Enterprise pricing and custom limits.'
+                : `Stream key limit reached (${limit}). Upgrade your plan for more.`;
             return Response.json(
-              { error: `Stream key limit reached (${limit}). Upgrade your plan for more.` },
+              {
+                error: limitMessage,
+                code: limit >= 10 ? 'enterprise_required' : 'stream_key_limit',
+                limit,
+              },
               { status: 403, headers: CORS }
             );
           }
@@ -557,6 +954,7 @@ const handler = {
 
           await assertUserStreamKey(env, user.id, streamKeyId);
 
+          const watermarkPolicy = await resolveOwnerWatermarkPolicy(env, user.id);
           const trackingCode = crypto.randomUUID().replace(/-/g, '').slice(0, 20);
           const embed = await supabaseInsert(env, 'embed_instances', {
             user_id: user.id,
@@ -565,7 +963,7 @@ const handler = {
             video_source_type: videoSourceType,
             video_source_url: videoSourceUrl,
             stream_key_id: streamKeyId,
-            is_watermark_enabled: true,
+            is_watermark_enabled: watermarkPolicy.defaultWatermarkEnabled,
             watermark_text: '© Simple Streamz',
             watermark_position: 'bottom_right',
             watermark_size: 'medium',
@@ -601,6 +999,11 @@ const handler = {
 
           if (patch.stream_key_id) {
             await assertUserStreamKey(env, user.id, patch.stream_key_id);
+          }
+
+          const watermarkPolicy = await resolveOwnerWatermarkPolicy(env, user.id);
+          if (watermarkPolicy.tierRequiresWatermark && 'is_watermark_enabled' in patch) {
+            patch.is_watermark_enabled = true;
           }
 
           const updated = await supabaseUpdate(env, 'embed_instances', `id=eq.${embedId}`, patch);
@@ -645,13 +1048,14 @@ const handler = {
       }
 
       try {
-        const code = url.searchParams.get('code');
+        const code = url.searchParams.get('code')?.trim();
         if (!code) {
           return Response.json({ error: 'code is required' }, { status: 400, headers: CORS });
         }
 
         const referer = request.headers.get('referer') || request.headers.get('origin') || '';
-        const result = await resolveEmbedConfig(env, code, referer);
+        const viewHost = url.searchParams.get('host')?.trim().toLowerCase() || '';
+        const result = await resolveEmbedConfig(env, code, referer, viewHost);
         if (result.error) {
           return Response.json({ error: result.error }, { status: result.status, headers: CORS });
         }
