@@ -107,20 +107,18 @@ function StreamKeyEditor({ embed, streamKeys, onSave }) {
 function OfflinePlaybackEditor({ embed, onSave }) {
   const [holdingTitle, setHoldingTitle] = useState(embed.holding_title || '');
   const [holdingMessage, setHoldingMessage] = useState(embed.holding_message || '');
-  const [replayWhenOffline, setReplayWhenOffline] = useState(embed.replay_when_offline !== false);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     setHoldingTitle(embed.holding_title || '');
     setHoldingMessage(embed.holding_message || '');
-    setReplayWhenOffline(embed.replay_when_offline !== false);
-  }, [embed.holding_title, embed.holding_message, embed.replay_when_offline]);
+  }, [embed.holding_title, embed.holding_message]);
 
   const save = () => {
     onSave({
       holding_title: holdingTitle.trim() || null,
       holding_message: holdingMessage.trim() || null,
-      replay_when_offline: replayWhenOffline,
+      replay_when_offline: false,
     });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -129,11 +127,11 @@ function OfflinePlaybackEditor({ embed, onSave }) {
   return (
     <div className="space-y-3">
       <label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-        <Radio className="w-3.5 h-3.5 text-muted-foreground" /> When you&apos;re offline
+        <Radio className="w-3.5 h-3.5 text-muted-foreground" /> Before you go live
       </label>
       <p className="text-[11px] text-muted-foreground">
-        Customize what visitors see before service starts. When enabled, the most recent auto-recorded
-        service replays after you go offline.
+        Visitors tap to open the player, chat while they wait, and see your message until the live
+        feed starts automatically.
       </p>
       <div className="space-y-2">
         <input
@@ -150,26 +148,16 @@ function OfflinePlaybackEditor({ embed, onSave }) {
           className="w-full bg-secondary/50 border border-border/50 rounded-xl px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/50 resize-y"
         />
       </div>
-      <label className="flex items-start gap-2 text-xs text-foreground">
-        <input
-          type="checkbox"
-          checked={replayWhenOffline}
-          onChange={(e) => setReplayWhenOffline(e.target.checked)}
-          className="mt-0.5"
-        />
-        <span>
-          Show the latest service replay when offline
-          <span className="block text-[11px] text-muted-foreground mt-0.5">
-            Requires automatic recording on your stream key (enabled by default).
-          </span>
-        </span>
-      </label>
+      <p className="rounded-xl border border-border/50 bg-secondary/30 px-3 py-2 text-[11px] text-muted-foreground">
+        Sermon library and on-demand replays are coming soon. Live streaming and chat work today;
+        recordings are saved automatically in the background for a future release.
+      </p>
       <button
         type="button"
         onClick={save}
         className="px-3 py-2 rounded-xl bg-secondary text-xs font-medium text-foreground hover:bg-secondary/80 transition-colors"
       >
-        {saved ? <Check className="w-3.5 h-3.5 text-green-400" /> : 'Save offline settings'}
+        {saved ? <Check className="w-3.5 h-3.5 text-green-400" /> : 'Save holding screen'}
       </button>
     </div>
   );
@@ -419,6 +407,7 @@ export default function EmbedManager() {
           Each embed has a unique tracking code. Copy the full block (style, iframe, and one script tag) and paste it into your site.
           Replace any older embed HTML completely — older copies included a second inline script that causes desktop chat flashing.
           On Hostinger, use an HTML/embed widget and stretch the element to full section width on mobile (not a small fixed box).
+          Offline visitors see your holding screen and can chat until you go live. Sermon replays and a video library are coming soon.
         </p>
       </div>
 

@@ -149,7 +149,7 @@ export async function resolveEmbedConfig(env, trackingCode, referer, viewHost = 
       buildHlsPlaybackUrl(env.CLOUDFLARE_STREAM_CUSTOMER_CODE, key?.cloudflare_input_id) ||
       key?.hls_playback_url;
     if (hlsUrl && key?.key_value) {
-      const replayWhenOffline = embed.replay_when_offline !== false;
+      const replayWhenOffline = embed.replay_when_offline === true;
       let playbackMode = 'holding';
       let replayHlsUrl = null;
 

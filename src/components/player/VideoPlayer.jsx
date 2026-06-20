@@ -333,7 +333,7 @@ export default function VideoPlayer({
           hlsUrl={source.hlsUrl}
           replayHlsUrl={source.replayHlsUrl}
           playbackMode={source.playbackMode}
-          replayWhenOffline={source.replayWhenOffline !== false}
+          replayWhenOffline={source.replayWhenOffline === true}
           holdingTitle={source.holdingTitle}
           holdingMessage={source.holdingMessage}
           embed={embed}

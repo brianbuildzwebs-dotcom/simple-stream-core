@@ -34,7 +34,7 @@ function RtmpPlayer({
   hlsUrl,
   replayHlsUrl = null,
   playbackMode = 'holding',
-  replayWhenOffline = true,
+  replayWhenOffline = false,
   holdingTitle = null,
   holdingMessage = null,
   embed = false,

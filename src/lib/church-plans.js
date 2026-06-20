@@ -97,12 +97,12 @@ export const CHURCH_FAQ = [
     a: 'No. One embed on your website works for every service. You only need extra stream keys when two rooms are live at the same time.',
   },
   {
-    q: 'What happens on my website before and after service?',
-    a: 'Before you go live, visitors see a friendly holding screen you can customize in Embed Manager. After service, the player can automatically show your most recent recording — no extra upload step.',
+    q: 'What happens on my website before service?',
+    a: 'Visitors tap to open the player, can chat while they wait, and see a holding screen you customize in Embed Manager. Video starts automatically when you go live — no page refresh needed.',
   },
   {
     q: 'Do you store our sermon videos?',
-    a: 'Live streaming is included on every plan. Cloudflare automatically records each service tied to your stream key. A full sermon library with uploads and search is coming soon — you are not paying extra for storage today.',
+    a: 'Live streaming is included on every plan. Services are recorded automatically in the background. A sermon library with on-demand replays and uploads is coming soon — you are not paying extra for storage today.',
   },
   {
     q: 'Will this work with WordPress?',
