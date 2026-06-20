@@ -1,4 +1,3 @@
-import { verifyCloudflareAccessRequest } from './cloudflare-access.mjs';
 import { hashEmailForAudit } from './legal-acceptance.mjs';
 import { supabaseSelect } from './supabase-admin.mjs';
 
@@ -8,11 +7,6 @@ export async function isUserAdmin(env, userId) {
 }
 
 export async function verifyAdminUser(request, env, verifySupabaseUser) {
-  const access = await verifyCloudflareAccessRequest(request, env);
-  if (!access.ok) {
-    return { user: null, reason: access.reason };
-  }
-
   const { user, reason } = await verifySupabaseUser(request, env);
   if (!user) {
     return { user: null, reason };
@@ -23,7 +17,7 @@ export async function verifyAdminUser(request, env, verifySupabaseUser) {
     return { user: null, reason: 'forbidden' };
   }
 
-  return { user, reason: null, accessEmail: access.payload?.email ?? null };
+  return { user, reason: null };
 }
 
 async function fetchAuthUserById(env, userId) {

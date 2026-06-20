@@ -2,6 +2,7 @@ import { authJsonHeaders } from '@/lib/api-auth';
 
 async function adminFetch(path, options = {}) {
   const response = await fetch(path, {
+    credentials: 'same-origin',
     ...options,
     headers: {
       ...(await authJsonHeaders()),

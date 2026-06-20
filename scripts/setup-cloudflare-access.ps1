@@ -13,9 +13,9 @@ Write-Host ""
 Write-Host "Simple Streamz - Cloudflare Access setup" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "This protects ONLY admin routes (public app stays open):" -ForegroundColor Yellow
+Write-Host "This protects ONLY the admin UI (public app + admin API stay reachable):" -ForegroundColor Yellow
 Write-Host "  /admin and /admin/*"
-Write-Host "  /api/admin and /api/admin/*"
+Write-Host "  /api/admin/* is NOT behind Access (Worker uses Supabase admin JWT)."
 Write-Host ""
 Write-Host "Do NOT use Workers -> Enable Cloudflare Access on workers.dev."
 Write-Host "That locks the entire site, including embeds and sign-in."
@@ -96,9 +96,7 @@ $appBody = @{
   domain = "$WorkerHost/admin"
   destinations = @(
     @{ type = "public"; uri = "$WorkerHost/admin" },
-    @{ type = "public"; uri = "$WorkerHost/admin/*" },
-    @{ type = "public"; uri = "$WorkerHost/api/admin" },
-    @{ type = "public"; uri = "$WorkerHost/api/admin/*" }
+    @{ type = "public"; uri = "$WorkerHost/admin/*" }
   )
 }
 
