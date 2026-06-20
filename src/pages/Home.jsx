@@ -78,8 +78,8 @@ const STEPS = [
 ];
 
 const GATHERINGS = [
-  { time: 'Sun 9:00', label: 'Early service', note: 'Same embed' },
-  { time: 'Sun 10:45', label: 'Sunday School', note: '2nd feed if live together' },
+  { time: 'Sun 9:00', label: 'Sunday School', note: 'Same embed' },
+  { time: 'Sun 10:45', label: 'Early service', note: '2nd feed if live together' },
   { time: 'Sun 6:00', label: 'Evening worship', note: 'Same key' },
   { time: 'Wed 7:00', label: 'Midweek', note: 'Same embed' },
 ];
