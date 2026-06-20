@@ -1,12 +1,12 @@
 export const EMBED_RESIZE_MESSAGE = 'simple-streamz:resize';
 export const EMBED_REMEASURE_MESSAGE = 'simple-streamz:remeasure';
 export const EMBED_MOBILE_MAX_WIDTH = 767;
-export const EMBED_DESKTOP_CHAT_DOCK_HEIGHT = 288;
-export const EMBED_MOBILE_CHAT_DOCK_HEIGHT = 392;
-export const EMBED_DESKTOP_CHAT_DOCK_DVH = 45;
-export const EMBED_MOBILE_CHAT_DOCK_DVH = 58;
-/** Extra pixels so host iframe does not clip the chat composer on desktop. */
-export const EMBED_HEIGHT_BUFFER = 16;
+export const EMBED_DESKTOP_CHAT_DOCK_HEIGHT = 320;
+export const EMBED_MOBILE_CHAT_DOCK_HEIGHT = 420;
+export const EMBED_DESKTOP_CHAT_DOCK_DVH = 48;
+export const EMBED_MOBILE_CHAT_DOCK_DVH = 62;
+/** Padding between measured shell and host iframe height (composer + safe-area). */
+export const EMBED_HEIGHT_BUFFER = 32;
 
 function getPhoneScreenEdge() {
   if (typeof window === 'undefined') return Number.POSITIVE_INFINITY;
@@ -30,15 +30,8 @@ export function getChatDockHeightPx() {
   return Math.min(cap, Math.ceil((window.innerHeight || 600) * (dvhPct / 100)));
 }
 
-export function measureEmbedShellHeight(root, { chatDockOpen = false } = {}) {
+export function measureEmbedShellHeight(root, { chatDockOpen = false, chatDockEl = null } = {}) {
   if (!root) return 0;
-
-  const scrollHeight = Math.ceil(root.scrollHeight || 0);
-  const rectHeight = Math.ceil(root.getBoundingClientRect().height || 0);
-  const domHeight = Math.max(scrollHeight, rectHeight);
-  if (domHeight > 0) {
-    return domHeight + (chatDockOpen ? EMBED_HEIGHT_BUFFER : 0);
-  }
 
   const width = root.clientWidth || root.getBoundingClientRect().width || 0;
   const videoHeight = Math.max(0, Math.ceil((width * 9) / 16));
@@ -47,7 +40,15 @@ export function measureEmbedShellHeight(root, { chatDockOpen = false } = {}) {
     return videoHeight;
   }
 
-  return videoHeight + getChatDockHeightPx() + EMBED_HEIGHT_BUFFER;
+  const chatDockHeight = chatDockEl
+    ? Math.ceil(chatDockEl.getBoundingClientRect().height || chatDockEl.offsetHeight || 0)
+    : getChatDockHeightPx();
+
+  const shellHeight = Math.ceil(root.getBoundingClientRect().height || root.offsetHeight || 0);
+  const summed = videoHeight + chatDockHeight;
+  const measured = Math.max(shellHeight, summed);
+
+  return measured + EMBED_HEIGHT_BUFFER;
 }
 
 export function subscribeEmbedRemeasure(onRemeasure) {
@@ -82,7 +83,7 @@ export function postEmbedHeight(height, { collapsed = false } = {}) {
       { type: EMBED_RESIZE_MESSAGE, height: next, collapsed },
       '*'
     );
-  }, collapsed ? 60 : 180);
+  }, collapsed ? 60 : 120);
 }
 
 export function resetEmbedHeightState() {
@@ -91,4 +92,31 @@ export function resetEmbedHeightState() {
     window.clearTimeout(postTimer);
     postTimer = null;
   }
+}
+
+export function observeEmbedShell(root, onMeasure) {
+  if (!root || typeof ResizeObserver === 'undefined') {
+    onMeasure?.();
+    return () => {};
+  }
+
+  let frame = null;
+  const schedule = () => {
+    if (frame != null) return;
+    frame = window.requestAnimationFrame(() => {
+      frame = null;
+      onMeasure?.();
+    });
+  };
+
+  const observer = new ResizeObserver(schedule);
+  observer.observe(root);
+  schedule();
+
+  return () => {
+    observer.disconnect();
+    if (frame != null) {
+      window.cancelAnimationFrame(frame);
+    }
+  };
 }

@@ -20,7 +20,7 @@ export function buildEmbedUrl(trackingCode) {
   return `${window.location.origin}/embed/c/${encodeURIComponent(code)}`;
 }
 
-export const EMBED_HOST_SCRIPT_VERSION = '15';
+export const EMBED_HOST_SCRIPT_VERSION = '16';
 
 export function buildEmbedHostScriptUrl() {
   if (typeof window === 'undefined') return `/embed-host.js?v=${EMBED_HOST_SCRIPT_VERSION}`;

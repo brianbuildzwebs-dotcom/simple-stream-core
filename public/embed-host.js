@@ -1,10 +1,10 @@
 (function () {
   var MOBILE_MAX = 767;
-  var MOBILE_CHAT = 392;
-  var DESKTOP_CHAT = 288;
-  var MOBILE_DVH = 0.58;
-  var DESKTOP_DVH = 0.45;
-  var HEIGHT_BUFFER = 16;
+  var MOBILE_CHAT = 420;
+  var DESKTOP_CHAT = 320;
+  var MOBILE_DVH = 0.62;
+  var DESKTOP_DVH = 0.48;
+  var HEIGHT_BUFFER = 32;
 
   function isMobileHost() {
     return (
@@ -43,9 +43,11 @@
     wrapper.style.maxWidth = '100%';
     wrapper.style.minWidth = '0';
     wrapper.style.height = 'auto';
+    wrapper.style.overflow = 'visible';
     frame.style.width = '100%';
     frame.style.maxWidth = '100%';
     frame.style.minWidth = '100%';
+    frame.style.overflow = 'visible';
   }
 
   function applyMobileFullBleed(wrapper, frame) {
@@ -74,6 +76,7 @@
     frame.style.maxWidth = '100%';
     frame.style.minHeight = '0';
     frame.style.maxHeight = 'none';
+    frame.style.overflow = 'visible';
     if (next > 0) {
       frame.style.height = next + 'px';
       frame.style.aspectRatio = 'auto';
@@ -123,6 +126,7 @@
       frame.style.aspectRatio = 'auto';
       frame.style.maxHeight = 'none';
       frame.style.minHeight = '0';
+      frame.style.overflow = 'visible';
     }
 
     breakoutBuilderShell(wrapper, frame);

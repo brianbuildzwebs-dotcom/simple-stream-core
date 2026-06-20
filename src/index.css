@@ -146,6 +146,10 @@ input[type="range"]::-webkit-slider-thumb {
   overflow: hidden;
 }
 
+html.embed-route .embed-player-shell {
+  overflow: visible;
+}
+
 html.embed-route,
 html.embed-route body,
 html.embed-route #root {
@@ -156,7 +160,7 @@ html.embed-route #root {
   padding: 0;
   height: auto;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
   overscroll-behavior: none;
 }
 

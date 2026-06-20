@@ -15,9 +15,9 @@ import {
 import { Play } from 'lucide-react';
 import WatermarkOverlay from './WatermarkOverlay';
 import {
-  getChatDockHeightPx,
   isEmbedMobileViewport,
   measureEmbedShellHeight,
+  observeEmbedShell,
   postEmbedHeight,
   resetEmbedHeightState,
   subscribeEmbedRemeasure,
@@ -40,6 +40,7 @@ export default function VideoPlayer({
   const videoRef = useRef(null);
   const containerRef = useRef(null);
   const embedShellRef = useRef(null);
+  const chatDockRef = useRef(null);
   const youtubePlayerRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolume] = useState(() => (embed ? EMBED_DEFAULT_VOLUME : 0.8));
@@ -66,15 +67,24 @@ export default function VideoPlayer({
   const chatEnabled = settings.chat_enabled !== false;
   const embedChatDock = embed && chatEnabled;
   const embedVideoFit = embed && isMobileEmbed ? 'cover' : 'contain';
-  const chatDockHeightPx = chatOpen ? getChatDockHeightPx() : 0;
 
   const getEmbedResizeOptions = useCallback(
     () => ({
       chatDockOpen: embedChatDock && chatOpen,
       collapsed: !embedChatDock || !chatOpen,
+      chatDockEl: chatDockRef.current,
     }),
     [embedChatDock, chatOpen]
   );
+
+  const reportEmbedHeight = useCallback(() => {
+    const root = embedShellRef.current;
+    if (!root) return;
+    const options = getEmbedResizeOptions();
+    postEmbedHeight(measureEmbedShellHeight(root, options), {
+      collapsed: options.collapsed,
+    });
+  }, [getEmbedResizeOptions]);
 
   useEffect(() => {
     if (!embed) return undefined;
@@ -92,34 +102,18 @@ export default function VideoPlayer({
   useEffect(() => {
     if (!embed || !embedChatDock) return undefined;
 
-    const delay = chatOpen ? 160 : 100;
-    const timer = window.setTimeout(() => {
-      const root = embedShellRef.current;
-      if (!root) return;
-      const options = getEmbedResizeOptions();
-      postEmbedHeight(measureEmbedShellHeight(root, options), {
-        collapsed: options.collapsed,
-      });
-    }, delay);
+    const kickoff = window.setTimeout(reportEmbedHeight, chatOpen ? 280 : 80);
+    const root = embedShellRef.current;
+    const chatDock = chatDockRef.current;
+    const unobserveRoot = root ? observeEmbedShell(root, reportEmbedHeight) : () => {};
+    const unobserveChat = chatDock ? observeEmbedShell(chatDock, reportEmbedHeight) : () => {};
 
-    return () => window.clearTimeout(timer);
-  }, [embed, embedChatDock, chatOpen, getEmbedResizeOptions, sourceKey]);
-
-  useEffect(() => {
-    if (!embed || !embedChatDock) return undefined;
-
-    const remeasure = () => {
-      const root = embedShellRef.current;
-      if (!root) return;
-      const options = getEmbedResizeOptions();
-      postEmbedHeight(measureEmbedShellHeight(root, options), {
-        collapsed: options.collapsed,
-      });
+    return () => {
+      window.clearTimeout(kickoff);
+      unobserveRoot();
+      unobserveChat();
     };
-
-    window.addEventListener('resize', remeasure);
-    return () => window.removeEventListener('resize', remeasure);
-  }, [embed, embedChatDock, chatOpen, getEmbedResizeOptions]);
+  }, [embed, embedChatDock, chatOpen, reportEmbedHeight, sourceKey]);
 
   useEffect(() => {
     onViewerCountChange?.(viewerCount);
@@ -153,12 +147,7 @@ export default function VideoPlayer({
     const reportMobileLayout = () => {
       setIsMobileEmbed(isEmbedMobileViewport());
       resetEmbedHeightState();
-      const root = embedShellRef.current;
-      if (!root) return;
-      const options = getEmbedResizeOptions();
-      postEmbedHeight(measureEmbedShellHeight(root, options), {
-        collapsed: options.collapsed,
-      });
+      reportEmbedHeight();
     };
 
     window.addEventListener('orientationchange', reportMobileLayout);
@@ -168,7 +157,7 @@ export default function VideoPlayer({
       window.removeEventListener('orientationchange', reportMobileLayout);
       unsubscribeRemeasure();
     };
-  }, [embed, getEmbedResizeOptions]);
+  }, [embed, reportEmbedHeight]);
 
   const applyEmbedAudibleVolume = useCallback(() => {
     setVolume(EMBED_DEFAULT_VOLUME);
@@ -475,12 +464,12 @@ export default function VideoPlayer({
               {chrome}
             </div>
             <div
-              className={`w-full max-w-full overflow-hidden border-white/10 bg-card/95 ${
+              ref={chatDockRef}
+              className={`w-full max-w-full box-border border-white/10 bg-card/95 ${
                 chatOpen
-                  ? 'shrink-0 border-t rounded-b-xl max-sm:rounded-none sm:rounded-b-xl'
-                  : 'h-0 shrink-0 border-0 pointer-events-none'
+                  ? 'h-[min(320px,48dvh)] shrink-0 overflow-hidden border-t rounded-b-xl max-sm:h-[min(420px,62dvh)] max-sm:rounded-none sm:rounded-b-xl'
+                  : 'h-0 shrink-0 overflow-hidden border-0 pointer-events-none'
               }`}
-              style={chatOpen ? { height: `${chatDockHeightPx}px` } : undefined}
               aria-hidden={!chatOpen}
             >
               {dockPanel}

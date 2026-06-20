@@ -116,15 +116,13 @@ export default function Embed() {
   }
 
   return (
-    <div className="embed-player-shell w-full min-w-full max-w-full bg-black">
-      <VideoPlayer
-        source={source}
-        embed
-        watermark={watermark}
-        chatOwnerId={chatMeta?.ownerUserId || null}
-        embedId={chatMeta?.embedId || null}
-        settings={loading ? { chat_enabled: embedOptions.chatEnabled } : mergedSettings}
-      />
-    </div>
+    <VideoPlayer
+      source={source}
+      embed
+      watermark={watermark}
+      chatOwnerId={chatMeta?.ownerUserId || null}
+      embedId={chatMeta?.embedId || null}
+      settings={loading ? { chat_enabled: embedOptions.chatEnabled } : mergedSettings}
+    />
   );
 }
