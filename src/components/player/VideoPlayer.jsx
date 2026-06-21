@@ -58,6 +58,7 @@ export default function VideoPlayer({
   const [rtmpNeedsUserStart, setRtmpNeedsUserStart] = useState(false);
   const [chatOpen, setChatOpen] = useState(() => embed && settings.chat_enabled !== false);
   const rtmpStartPlaybackRef = useRef(null);
+  const embedAudibleAppliedRef = useRef(false);
   const hideTimeout = useRef(null);
   const viewerCount = useViewerPresence(!!source);
   const isRtmp = source?.type === 'rtmp';
@@ -160,6 +161,8 @@ export default function VideoPlayer({
   }, [embed, reportEmbedHeight]);
 
   const applyEmbedAudibleVolume = useCallback(() => {
+    if (embedAudibleAppliedRef.current) return;
+    embedAudibleAppliedRef.current = true;
     setVolume(EMBED_DEFAULT_VOLUME);
     setIsMuted(false);
     const video = videoRef.current;
@@ -176,6 +179,7 @@ export default function VideoPlayer({
     setYoutubeIsLive(false);
     setRtmpIsLive(false);
     setRtmpNeedsUserStart(false);
+    embedAudibleAppliedRef.current = false;
     if (source?.type === 'rtmp') {
       setIsMuted(embed);
     } else if (embed) {

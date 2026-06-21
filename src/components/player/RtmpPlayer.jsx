@@ -64,6 +64,7 @@ function RtmpPlayer({
   const onPlayingChangeRef = useRef(onPlayingChange);
   const onLiveChangeRef = useRef(onLiveChange);
   const playbackUnlockedRef = useRef(false);
+  const audibleVolumeAppliedRef = useRef(false);
   const inIframe = typeof window !== 'undefined' && window.self !== window.top;
   const deferUntilClick = embed && inIframe;
 
@@ -110,7 +111,8 @@ function RtmpPlayer({
 
   const applyAudibleVolume = useCallback(
     (video) => {
-      if (!video || defaultVolume == null) return;
+      if (!video || defaultVolume == null || audibleVolumeAppliedRef.current) return;
+      audibleVolumeAppliedRef.current = true;
       video.volume = defaultVolume;
       video.muted = false;
       onAudiblePlayback?.();
@@ -469,6 +471,8 @@ function RtmpPlayer({
     if (activeUrlRef.current === activeUrl && hlsRef.current) {
       return undefined;
     }
+
+    audibleVolumeAppliedRef.current = false;
 
     if (deferUntilClick && !isReplay) {
       setAwaitingClick(true);
