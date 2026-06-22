@@ -13,6 +13,8 @@ import {
   Menu,
   MessageSquare,
   User,
+  LifeBuoy,
+  Lightbulb,
 } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
 import { useSubscription } from '@/hooks/useSubscription';
@@ -25,6 +27,8 @@ const NAV = [
   { path: '/dashboard/streams', label: 'Stream Keys', icon: Radio },
   { path: '/dashboard/embeds', label: 'Embed Manager', icon: Code2 },
   { path: '/dashboard/chat', label: 'Chat Moderation', icon: MessageSquare },
+  { path: '/dashboard/support', label: 'Support', icon: LifeBuoy },
+  { path: '/dashboard/suggest', label: 'Suggest Feature', icon: Lightbulb },
   { path: '/dashboard/profile', label: 'Profile', icon: User },
 ];
 

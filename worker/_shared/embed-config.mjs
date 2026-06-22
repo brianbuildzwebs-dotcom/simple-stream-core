@@ -226,6 +226,9 @@ export async function resolveEmbedConfig(env, trackingCode, referer, viewHost = 
       embedId: embed.id,
       ownerUserId: embed.user_id,
       chatEnabled: embed.chat_enabled !== false,
+      giveEnabled: embed.give_enabled === true,
+      giveUrl: embed.give_url?.trim() || null,
+      giveLabel: embed.give_label?.trim() || 'Give',
       name: embed.name,
       source,
       watermark: showWatermark

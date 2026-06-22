@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { MessageSquare, UserX, Settings2 } from 'lucide-react';
+import { MessageSquare, UserX, Settings2, HandHeart } from 'lucide-react';
+import { normalizeGiveUrl } from '@/lib/give-link';
 import { useAuth } from '@/lib/AuthContext';
 import { fetchUserEmbeds } from '@/lib/subscription';
 import { fetchStreamKeys } from '@/lib/stream-keys-api';
@@ -25,6 +26,9 @@ export default function ChatModeration() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('messages');
   const [savingChatToggle, setSavingChatToggle] = useState(false);
+  const [giveUrlDraft, setGiveUrlDraft] = useState('');
+  const [giveLabelDraft, setGiveLabelDraft] = useState('Give');
+  const [savingGive, setSavingGive] = useState(false);
 
   const chatOptions = useMemo(
     () => buildEmbedChatOptions(embeds, streamKeys),
@@ -58,6 +62,12 @@ export default function ChatModeration() {
       .finally(() => setLoading(false));
   }, [user?.id]);
 
+  useEffect(() => {
+    if (!selected?.embed) return;
+    setGiveUrlDraft(selected.embed.give_url || '');
+    setGiveLabelDraft(selected.embed.give_label || 'Give');
+  }, [selected?.embed?.id, selected?.embed?.give_url, selected?.embed?.give_label]);
+
   const selectEmbed = (embedId) => {
     const next = new URLSearchParams(searchParams);
     if (embedId) {
@@ -66,6 +76,53 @@ export default function ChatModeration() {
       next.delete('embed');
     }
     setSearchParams(next, { replace: true });
+  };
+
+  const handleGiveToggle = async (enabled) => {
+    if (!selected?.embed) return;
+    setSavingGive(true);
+    try {
+      const patch = { give_enabled: enabled };
+      if (!enabled) {
+        patch.give_url = null;
+      }
+      const updated = await updateEmbedInstance(selected.embed.id, patch);
+      setEmbeds((prev) => prev.map((row) => (row.id === updated.id ? { ...row, ...updated } : row)));
+      toast({
+        title: enabled ? 'Give button enabled' : 'Give button hidden',
+        description: enabled
+          ? 'Add your giving link below so viewers can donate from chat.'
+          : 'The Give button no longer appears in chat.',
+      });
+    } catch (error) {
+      toast({ title: 'Could not update give button', description: error.message, variant: 'destructive' });
+    } finally {
+      setSavingGive(false);
+    }
+  };
+
+  const handleSaveGiveSettings = async () => {
+    if (!selected?.embed) return;
+    setSavingGive(true);
+    try {
+      const normalizedUrl = giveUrlDraft.trim() ? normalizeGiveUrl(giveUrlDraft) : '';
+      if (selected.embed.give_enabled && !normalizedUrl) {
+        throw new Error('Enter your church giving link (HTTPS) before enabling Give.');
+      }
+      const updated = await updateEmbedInstance(selected.embed.id, {
+        give_url: normalizedUrl || null,
+        give_label: (giveLabelDraft || 'Give').trim().slice(0, 24) || 'Give',
+        give_enabled: selected.embed.give_enabled,
+      });
+      setEmbeds((prev) => prev.map((row) => (row.id === updated.id ? { ...row, ...updated } : row)));
+      setGiveUrlDraft(updated.give_url || '');
+      setGiveLabelDraft(updated.give_label || 'Give');
+      toast({ title: 'Give settings saved' });
+    } catch (error) {
+      toast({ title: 'Could not save give settings', description: error.message, variant: 'destructive' });
+    } finally {
+      setSavingGive(false);
+    }
   };
 
   const handleChatToggle = async (enabled) => {
@@ -209,6 +266,62 @@ export default function ChatModeration() {
                   className="h-4 w-4"
                 />
               </label>
+              <div className="rounded-xl border border-border/50 bg-secondary/20 p-4 space-y-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    <HandHeart className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <p className="text-sm font-medium text-foreground">Online giving button</p>
+                    <p className="text-xs text-muted-foreground">
+                      Shows a Give link in the chat header. Use your church&apos;s PayPal, Pushpay,
+                      Tithe.ly, or website giving page — we never handle payments.
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={selected.embed.give_enabled === true}
+                    disabled={savingGive}
+                    onChange={(event) => handleGiveToggle(event.target.checked)}
+                    className="h-4 w-4 mt-1"
+                  />
+                </div>
+
+                {selected.embed.give_enabled && (
+                  <div className="space-y-3 pt-1 border-t border-border/40">
+                    <div>
+                      <label className="text-xs font-medium text-foreground">Giving link (HTTPS)</label>
+                      <input
+                        type="url"
+                        value={giveUrlDraft}
+                        onChange={(e) => setGiveUrlDraft(e.target.value)}
+                        placeholder="https://yourchurch.org/give"
+                        className="mt-1 w-full rounded-lg border border-border/50 bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-foreground">Button label</label>
+                      <input
+                        type="text"
+                        value={giveLabelDraft}
+                        onChange={(e) => setGiveLabelDraft(e.target.value)}
+                        maxLength={24}
+                        placeholder="Give"
+                        className="mt-1 w-full rounded-lg border border-border/50 bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleSaveGiveSettings}
+                      disabled={savingGive}
+                      className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                    >
+                      {savingGive ? 'Saving…' : 'Save give settings'}
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <p className="text-xs text-muted-foreground">
                 Platform-wide profanity filtering is managed in Admin → Chat Moderation. Per-player
                 bans and message edits are under Messages and Banned viewers.

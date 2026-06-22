@@ -387,6 +387,9 @@ export default function VideoPlayer({
     profanityFilter: settings.profanity_filter === true,
     embed,
     hideViewerBadge: (isRtmp && rtmpIsLive) || (isYoutube && youtubeIsLive),
+    giveEnabled: settings.give_enabled === true,
+    giveUrl: settings.give_url || null,
+    giveLabel: settings.give_label || 'Give',
   } : null;
 
   const controlsBlocked = embed && isRtmp && rtmpNeedsUserStart;

@@ -45,6 +45,9 @@ export default function Embed() {
           ownerUserId: config.ownerUserId || null,
           embedId: config.embedId || null,
           chatEnabled: config.chatEnabled !== false,
+          giveEnabled: config.giveEnabled === true,
+          giveUrl: config.giveUrl || null,
+          giveLabel: config.giveLabel || 'Give',
         });
         logEmbedView(embedOptions.trackingCode);
       })
@@ -75,6 +78,9 @@ export default function Embed() {
       embedOptions.chatEnabled &&
       settings.chat_enabled !== false &&
       (chatMeta?.chatEnabled !== false || !embedOptions.trackingCode),
+    give_enabled: chatMeta?.giveEnabled === true,
+    give_url: chatMeta?.giveUrl || null,
+    give_label: chatMeta?.giveLabel || 'Give',
   };
 
   useEffect(() => {

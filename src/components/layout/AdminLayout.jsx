@@ -9,12 +9,16 @@ import {
   Shield,
   MessageSquare,
   FileCheck,
+  LifeBuoy,
+  Lightbulb,
 } from 'lucide-react';
 
 const ADMIN_NAV = [
   { path: '/admin', label: 'Overview', icon: LayoutDashboard, exact: true },
   { path: '/admin/users', label: 'Users', icon: Users },
   { path: '/admin/subscriptions', label: 'Subscriptions', icon: CreditCard },
+  { path: '/admin/support', label: 'Support', icon: LifeBuoy },
+  { path: '/admin/suggestions', label: 'Feature Ideas', icon: Lightbulb },
   { path: '/admin/legal', label: 'Legal Acceptance', icon: FileCheck },
   { path: '/admin/whitelist', label: 'Domain Whitelist', icon: Globe },
 ];

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { MessageCircle, Send, X, Trash2, ChevronUp, Users } from 'lucide-react';
+import { MessageCircle, Send, X, Trash2, ChevronUp, Users, HandHeart } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '@/lib/supabase';
@@ -44,6 +44,9 @@ export default function ChatOverlay({
   profanityFilter = false,
   embed = false,
   hideViewerBadge = false,
+  giveEnabled = false,
+  giveUrl = null,
+  giveLabel = 'Give',
   dockLayout = false,
   renderDockLayout,
   open: controlledOpen,
@@ -413,9 +416,25 @@ export default function ChatOverlay({
       className={panelClass}
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between flex-shrink-0">
-        <span className="text-sm font-semibold text-white">Live Chat</span>
-        <span className="text-xs text-white/40">{visibleMessages.length} messages</span>
+      <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between gap-2 flex-shrink-0">
+        <span className="text-sm font-semibold text-white shrink-0">Live Chat</span>
+        <div className="flex items-center gap-2 min-w-0">
+          {giveEnabled && giveUrl && (
+            <a
+              href={giveUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-full bg-primary/20 border border-primary/40 px-2.5 py-1 text-[11px] font-semibold text-primary-foreground hover:bg-primary/30 transition-colors touch-manipulation shrink-0"
+              aria-label={giveLabel || 'Give'}
+            >
+              <HandHeart className="w-3.5 h-3.5" />
+              <span>{giveLabel || 'Give'}</span>
+            </a>
+          )}
+          <span className="text-xs text-white/40 whitespace-nowrap">
+            {visibleMessages.length} messages
+          </span>
+        </div>
       </div>
 
       <div

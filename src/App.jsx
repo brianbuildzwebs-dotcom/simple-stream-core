@@ -16,11 +16,15 @@ import AdminSubscriptions from '@/pages/admin/AdminSubscriptions';
 import AdminWhitelist from '@/pages/admin/AdminWhitelist';
 import AdminModeration from '@/pages/admin/AdminModeration';
 import AdminLegalAcceptance from '@/pages/admin/AdminLegalAcceptance';
+import AdminSupport from '@/pages/admin/AdminSupport';
+import AdminSuggestions from '@/pages/admin/AdminSuggestions';
 import Dashboard from '@/pages/dashboard/Dashboard';
 import StreamKeys from '@/pages/dashboard/StreamKeys';
 import EmbedManager from '@/pages/dashboard/EmbedManager';
 import Profile from '@/pages/dashboard/Profile';
 import ChatModeration from '@/pages/dashboard/ChatModeration';
+import Support from '@/pages/dashboard/Support';
+import SuggestFeature from '@/pages/dashboard/SuggestFeature';
 import Login from '@/pages/Login';
 import Register from '@/pages/Register';
 import AuthCallback from '@/pages/AuthCallback';
@@ -57,6 +61,8 @@ export default function App() {
             <Route path="embeds" element={<EmbedManager />} />
             <Route path="profile" element={<Profile />} />
             <Route path="chat" element={<ChatModeration />} />
+            <Route path="support" element={<Support />} />
+            <Route path="suggest" element={<SuggestFeature />} />
           </Route>
         </Route>
 
@@ -68,6 +74,8 @@ export default function App() {
             <Route path="legal" element={<AdminLegalAcceptance />} />
             <Route path="whitelist" element={<AdminWhitelist />} />
             <Route path="moderation" element={<AdminModeration />} />
+            <Route path="support" element={<AdminSupport />} />
+            <Route path="suggestions" element={<AdminSuggestions />} />
           </Route>
         </Route>
 

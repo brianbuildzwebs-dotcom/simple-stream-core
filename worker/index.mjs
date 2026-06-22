@@ -79,6 +79,9 @@ const EMBED_PATCH_FIELDS = new Set([
   'holding_title',
   'holding_message',
   'replay_when_offline',
+  'give_enabled',
+  'give_url',
+  'give_label',
 ]);
 
 async function assertUserStreamKey(env, userId, streamKeyId) {
