@@ -19,6 +19,7 @@ export default function VideoControls({
   minimal = false,
   compact = false,
   hideManualExpand = false,
+  embed = false,
   pinned = false,
   showOpenInBrowser = false,
   onOpenInBrowser,
@@ -195,14 +196,22 @@ export default function VideoControls({
             </button>
           )}
 
-          <div className="flex items-center gap-1.5 ml-1">
+          <div className={`flex items-center ml-1 ${embed ? 'gap-2' : 'gap-1.5'}`}>
             <button
               type="button"
               onClick={onMuteToggle}
-              className="w-8 h-8 flex items-center justify-center text-white/70 hover:text-white transition-colors touch-manipulation"
+              className={
+                embed
+                  ? 'flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white hover:bg-white/25 transition-colors touch-manipulation'
+                  : 'w-8 h-8 flex items-center justify-center text-white/70 hover:text-white transition-colors touch-manipulation'
+              }
               aria-label={isMuted || volume === 0 ? 'Unmute' : 'Mute'}
             >
-              {isMuted || volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+              {isMuted || volume === 0 ? (
+                <VolumeX className={embed ? 'w-5 h-5' : 'w-4 h-4'} />
+              ) : (
+                <Volume2 className={embed ? 'w-5 h-5' : 'w-4 h-4'} />
+              )}
             </button>
             <input
               type="range"
@@ -211,7 +220,11 @@ export default function VideoControls({
               step="0.01"
               value={isMuted ? 0 : volume}
               onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
-              className="w-16 sm:w-20 cursor-pointer accent-primary"
+              className={
+                embed
+                  ? 'h-3 w-32 sm:w-40 cursor-pointer accent-primary'
+                  : 'w-16 sm:w-20 cursor-pointer accent-primary'
+              }
               aria-label="Volume"
             />
           </div>
