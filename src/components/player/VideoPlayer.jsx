@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import VideoControls from './VideoControls';
-import EmbedVolumePill from './EmbedVolumePill';
+
 import ChatOverlay from './ChatOverlay';
 import PlayerToolsMenu from './PlayerToolsMenu';
 import RtmpPlayer from './RtmpPlayer';
@@ -391,8 +391,6 @@ export default function VideoPlayer({
   } : null;
 
   const controlsBlocked = embed && isRtmp && rtmpNeedsUserStart;
-  const showEmbedVolumePill =
-    embed && source && !isYoutube && isPlaying && !controlsBlocked;
 
   const videoControls = source && !isYoutube ? (
     <VideoControls
@@ -411,16 +409,6 @@ export default function VideoPlayer({
       live={isRtmp && rtmpIsLive}
       hideManualExpand={embed}
       embed={embed}
-    />
-  ) : null;
-
-  const embedVolumePill = showEmbedVolumePill ? (
-    <EmbedVolumePill
-      volume={volume}
-      isMuted={isMuted}
-      onVolumeChange={handleVolumeChange}
-      visible
-      live={isRtmp && rtmpIsLive}
     />
   ) : null;
 
@@ -443,7 +431,6 @@ export default function VideoPlayer({
       {source && !isYoutube && !embed && (
         <PlayerToolsMenu videoRef={videoRef} visible={controlsVisible || !isPlaying} />
       )}
-      {embedVolumePill}
       {videoControls}
     </div>
   );
@@ -521,7 +508,6 @@ export default function VideoPlayer({
         {renderContent()}
         <WatermarkOverlay watermark={watermark} embed={embed} />
         {chatOverlayProps && <ChatOverlay {...chatOverlayProps} />}
-        {embedVolumePill}
         {videoControls}
       </div>
     </div>

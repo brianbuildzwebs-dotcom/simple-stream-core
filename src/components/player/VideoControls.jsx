@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Play, Pause, Volume2, VolumeX, Maximize, Minimize, SkipBack, SkipForward, ExternalLink } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
+import EmbedVolumePopover from './EmbedVolumePopover';
 
 export default function VideoControls({
   isPlaying,
@@ -24,6 +25,24 @@ export default function VideoControls({
   showOpenInBrowser = false,
   onOpenInBrowser,
 }) {
+  const [volumeOpen, setVolumeOpen] = useState(false);
+  const volumeClusterRef = useRef(null);
+
+  useEffect(() => {
+    if (!embed || !volumeOpen) return undefined;
+    const closeOnOutside = (event) => {
+      if (volumeClusterRef.current && !volumeClusterRef.current.contains(event.target)) {
+        setVolumeOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', closeOnOutside);
+    return () => document.removeEventListener('pointerdown', closeOnOutside);
+  }, [embed, volumeOpen]);
+
+  useEffect(() => {
+    if (!visible) setVolumeOpen(false);
+  }, [visible]);
+
   const formatTime = (seconds) => {
     if (!seconds || isNaN(seconds)) return '0:00';
     const mins = Math.floor(seconds / 60);
@@ -139,8 +158,9 @@ export default function VideoControls({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: visible ? 1 : 0, y: visible ? 0 : 20 }}
       transition={{ duration: 0.25 }}
-      className="absolute bottom-0 left-0 right-0 z-40 bg-gradient-to-t from-black/90 via-black/50 to-transparent pt-12 sm:pt-16 pb-3 px-3 sm:px-4 pointer-events-auto touch-manipulation safe-area-pb"
+      className="absolute bottom-0 left-0 right-0 z-40 bg-gradient-to-t from-black/90 via-black/50 to-transparent pt-12 sm:pt-16 pb-3 px-3 sm:px-4 pointer-events-auto touch-manipulation safe-area-pb overflow-visible"
       style={{ pointerEvents: visible ? 'auto' : 'none' }}
+      onClick={(e) => e.stopPropagation()}
     >
       <div className="mb-3">
         {live ? (
@@ -196,16 +216,38 @@ export default function VideoControls({
             </button>
           )}
 
-          <div className={`flex items-center ml-1 ${embed ? 'gap-2' : 'gap-1.5'}`}>
+          <div
+            ref={volumeClusterRef}
+            className={`relative flex items-center ml-1 ${embed ? 'gap-2' : 'gap-1.5'}`}
+          >
+            <AnimatePresence>
+              {embed && volumeOpen && (
+                <EmbedVolumePopover
+                  volume={volume}
+                  isMuted={isMuted}
+                  onVolumeChange={onVolumeChange}
+                  onClose={() => setVolumeOpen(false)}
+                />
+              )}
+            </AnimatePresence>
             <button
               type="button"
-              onClick={onMuteToggle}
+              onClick={() => {
+                if (embed) {
+                  setVolumeOpen((open) => !open);
+                  return;
+                }
+                onMuteToggle();
+              }}
               className={
                 embed
-                  ? 'flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white hover:bg-white/25 transition-colors touch-manipulation'
+                  ? `flex h-11 w-11 items-center justify-center rounded-full text-white transition-colors touch-manipulation ${
+                      volumeOpen ? 'bg-primary/30 ring-1 ring-primary/50' : 'bg-white/15 hover:bg-white/25'
+                    }`
                   : 'w-8 h-8 flex items-center justify-center text-white/70 hover:text-white transition-colors touch-manipulation'
               }
-              aria-label={isMuted || volume === 0 ? 'Unmute' : 'Mute'}
+              aria-label={embed ? 'Adjust volume' : isMuted || volume === 0 ? 'Unmute' : 'Mute'}
+              aria-expanded={embed ? volumeOpen : undefined}
             >
               {isMuted || volume === 0 ? (
                 <VolumeX className={embed ? 'w-5 h-5' : 'w-4 h-4'} />
@@ -213,20 +255,18 @@ export default function VideoControls({
                 <Volume2 className={embed ? 'w-5 h-5' : 'w-4 h-4'} />
               )}
             </button>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              value={isMuted ? 0 : volume}
-              onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
-              className={
-                embed
-                  ? 'h-3 w-32 sm:w-40 cursor-pointer accent-primary'
-                  : 'w-16 sm:w-20 cursor-pointer accent-primary'
-              }
-              aria-label="Volume"
-            />
+            {!embed && (
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={isMuted ? 0 : volume}
+                onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
+                className="w-16 sm:w-20 cursor-pointer accent-primary"
+                aria-label="Volume"
+              />
+            )}
           </div>
 
           {!live && (
