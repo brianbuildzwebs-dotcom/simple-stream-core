@@ -183,9 +183,7 @@ export default function VideoPlayer({
     setRtmpIsLive(false);
     setRtmpNeedsUserStart(false);
     embedAudibleAppliedRef.current = false;
-    if (source?.type === 'rtmp') {
-      setIsMuted(embed);
-    } else if (embed) {
+    if (embed) {
       setVolume(EMBED_DEFAULT_VOLUME);
       setIsMuted(false);
     } else {
@@ -213,7 +211,9 @@ export default function VideoPlayer({
     setCurrentTime(video.currentTime);
     onLoadedMetadata();
     video.volume = volume;
-    video.muted = isMuted;
+    if (!embed || !video.paused) {
+      video.muted = isMuted;
+    }
 
     return () => {
       video.removeEventListener('timeupdate', onTimeUpdate);
@@ -221,7 +221,7 @@ export default function VideoPlayer({
       video.removeEventListener('play', onPlay);
       video.removeEventListener('pause', onPause);
     };
-  }, [isYoutube, isRtmp, source?.url, source?.hlsUrl, videoMountGen, volume, isMuted]);
+  }, [embed, isYoutube, isRtmp, source?.url, source?.hlsUrl, videoMountGen, volume, isMuted]);
 
   const handlePlayPause = () => {
     if (isYoutube) return;
