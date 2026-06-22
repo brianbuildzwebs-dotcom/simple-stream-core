@@ -15,6 +15,7 @@ import {
 
 import { Play } from 'lucide-react';
 import WatermarkOverlay from './WatermarkOverlay';
+import { EMBED_DEFAULT_VOLUME } from '@/lib/embed-volume';
 import {
   isEmbedMobileViewport,
   measureEmbedShellHeight,
@@ -23,8 +24,6 @@ import {
   resetEmbedHeightState,
   subscribeEmbedRemeasure,
 } from '@/lib/embed-resize';
-
-const EMBED_DEFAULT_VOLUME = 0.15;
 const CONTROLS_HIDE_MS = 3000;
 const EMBED_CONTROLS_HIDE_MS = 9000;
 

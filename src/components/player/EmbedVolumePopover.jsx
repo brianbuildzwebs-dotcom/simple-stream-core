@@ -1,13 +1,7 @@
 import React from 'react';
 import { X } from 'lucide-react';
 import { motion } from 'framer-motion';
-
-const PRESETS = [
-  { label: 'Mute', value: 0 },
-  { label: 'Low', value: 0.35 },
-  { label: 'Med', value: 0.65 },
-  { label: 'High', value: 1 },
-];
+import { EMBED_VOLUME_PRESETS } from '@/lib/embed-volume';
 
 export default function EmbedVolumePopover({ volume, isMuted, onVolumeChange, onClose }) {
   const sliderValue = isMuted ? 0 : volume;
@@ -50,7 +44,7 @@ export default function EmbedVolumePopover({ volume, isMuted, onVolumeChange, on
       </div>
 
       <div className="grid grid-cols-4 gap-1">
-        {PRESETS.map((preset) => {
+        {EMBED_VOLUME_PRESETS.map((preset) => {
           const active =
             preset.value === 0
               ? isMuted || volume === 0
