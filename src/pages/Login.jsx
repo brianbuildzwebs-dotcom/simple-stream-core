@@ -13,6 +13,7 @@ import { completeSignIn } from '@/lib/complete-sign-in';
 import { getMfaAssuranceLevel, needsMfaChallenge } from '@/lib/mfa';
 import { APP_NAME } from '@/lib/brand';
 import usePageMeta from '@/hooks/usePageMeta';
+import { withTimeout } from '@/lib/with-timeout';
 
 export default function Login() {
   usePageMeta({
@@ -31,10 +32,18 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+      const { error: signInError } = await withTimeout(
+        supabase.auth.signInWithPassword({ email, password }),
+        15000,
+        'Sign-in timed out. Check your connection and try again.'
+      );
       if (signInError) throw signInError;
 
-      const level = await getMfaAssuranceLevel();
+      const level = await withTimeout(
+        getMfaAssuranceLevel(),
+        10000,
+        'Security check timed out. Refresh the page and try again.'
+      );
       if (needsMfaChallenge(level)) {
         setMfaStep(true);
         return;

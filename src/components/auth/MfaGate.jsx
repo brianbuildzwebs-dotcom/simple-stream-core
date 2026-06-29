@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { getMfaAssuranceLevel, needsMfaChallenge } from '@/lib/mfa';
 import MfaChallenge from '@/components/auth/MfaChallenge';
+import { withTimeout } from '@/lib/with-timeout';
 
 const Loading = () => (
   <div className="min-h-screen bg-background flex items-center justify-center">
@@ -13,7 +14,11 @@ export default function MfaGate({ children }) {
 
   const refresh = useCallback(async () => {
     try {
-      const level = await getMfaAssuranceLevel();
+      const level = await withTimeout(
+        getMfaAssuranceLevel(),
+        10000,
+        'Security check timed out'
+      );
       setStatus(needsMfaChallenge(level) ? 'challenge' : 'ready');
     } catch {
       setStatus('challenge');
