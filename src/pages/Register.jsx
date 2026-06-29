@@ -274,7 +274,7 @@ export default function Register() {
       </div>
 
       {turnstileRequired ? (
-        <div className="mb-6 flex justify-center">
+        <div className="mb-6">
           <TurnstileWidget
             siteKey={TURNSTILE_SITE_KEY}
             onVerify={setTurnstileToken}

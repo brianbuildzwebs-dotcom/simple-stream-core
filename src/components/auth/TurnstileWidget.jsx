@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 const SCRIPT_ID = 'cf-turnstile-script';
 const SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
@@ -12,8 +12,12 @@ function loadTurnstileScript() {
 
     const existing = document.getElementById(SCRIPT_ID);
     if (existing) {
-      existing.addEventListener('load', () => resolve(window.turnstile));
-      existing.addEventListener('error', reject);
+      if (existing.dataset.loaded === 'true') {
+        resolve(window.turnstile);
+        return;
+      }
+      existing.addEventListener('load', () => resolve(window.turnstile), { once: true });
+      existing.addEventListener('error', reject, { once: true });
       return;
     }
 
@@ -22,7 +26,10 @@ function loadTurnstileScript() {
     script.src = SCRIPT_SRC;
     script.async = true;
     script.defer = true;
-    script.onload = () => resolve(window.turnstile);
+    script.onload = () => {
+      script.dataset.loaded = 'true';
+      resolve(window.turnstile);
+    };
     script.onerror = reject;
     document.head.appendChild(script);
   });
@@ -31,11 +38,20 @@ function loadTurnstileScript() {
 export default function TurnstileWidget({ siteKey, onVerify, onExpire, onError, className = '' }) {
   const containerRef = useRef(null);
   const widgetIdRef = useRef(null);
+  const onVerifyRef = useRef(onVerify);
+  const onExpireRef = useRef(onExpire);
+  const onErrorRef = useRef(onError);
+  const [status, setStatus] = useState('loading');
+
+  onVerifyRef.current = onVerify;
+  onExpireRef.current = onExpire;
+  onErrorRef.current = onError;
 
   useEffect(() => {
     if (!siteKey || !containerRef.current) return undefined;
 
     let cancelled = false;
+    setStatus('loading');
 
     loadTurnstileScript()
       .then((turnstile) => {
@@ -49,12 +65,26 @@ export default function TurnstileWidget({ siteKey, onVerify, onExpire, onError, 
         widgetIdRef.current = turnstile.render(containerRef.current, {
           sitekey: siteKey,
           theme: 'dark',
-          callback: (token) => onVerify?.(token),
-          'expired-callback': () => onExpire?.(),
-          'error-callback': () => onError?.(),
+          size: 'flexible',
+          callback: (token) => {
+            setStatus('ready');
+            onVerifyRef.current?.(token);
+          },
+          'expired-callback': () => {
+            setStatus('ready');
+            onExpireRef.current?.();
+          },
+          'error-callback': () => {
+            setStatus('error');
+            onErrorRef.current?.();
+          },
         });
+        setStatus('ready');
       })
-      .catch(() => onError?.());
+      .catch(() => {
+        setStatus('error');
+        onErrorRef.current?.();
+      });
 
     return () => {
       cancelled = true;
@@ -63,9 +93,21 @@ export default function TurnstileWidget({ siteKey, onVerify, onExpire, onError, 
         widgetIdRef.current = null;
       }
     };
-  }, [siteKey, onVerify, onExpire, onError]);
+  }, [siteKey]);
 
   if (!siteKey) return null;
 
-  return <div ref={containerRef} className={className} />;
+  return (
+    <div
+      className={`relative w-full max-w-[304px] min-h-[65px] mx-auto ${className}`}
+      aria-live="polite"
+    >
+      {status === 'loading' ? (
+        <div className="absolute inset-0 flex items-center justify-center rounded-lg border border-border/40 bg-secondary/20 text-xs text-muted-foreground">
+          Loading security check…
+        </div>
+      ) : null}
+      <div ref={containerRef} className="min-h-[65px] w-full" />
+    </div>
+  );
 }
