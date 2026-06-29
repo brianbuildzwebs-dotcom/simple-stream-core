@@ -341,10 +341,14 @@ export default function VideoPlayer({
           replayHlsUrl={source.replayHlsUrl}
           playbackMode={source.playbackMode}
           replayWhenOffline={source.replayWhenOffline === true}
+          inputId={source.inputId}
+          customerCode={source.customerCode}
           holdingTitle={source.holdingTitle}
           holdingMessage={source.holdingMessage}
+          serviceSchedule={source.serviceSchedule}
           embed={embed}
           viewerCount={viewerCount}
+          chromeVisible={controlsVisible && !controlsBlocked}
           videoRef={videoRef}
           videoFit={embedVideoFit}
           defaultVolume={embed ? EMBED_DEFAULT_VOLUME : undefined}
@@ -393,6 +397,8 @@ export default function VideoPlayer({
   } : null;
 
   const controlsBlocked = embed && isRtmp && rtmpNeedsUserStart;
+  const hideEmbedIdleChrome =
+    embed && isRtmp && !rtmpIsLive && !isPlaying && !rtmpNeedsUserStart;
 
   const videoControls = source && !isYoutube ? (
     <VideoControls
@@ -407,10 +413,11 @@ export default function VideoPlayer({
       currentTime={currentTime}
       duration={duration}
       onSeek={handleSeek}
-      visible={controlsVisible && !controlsBlocked}
+      visible={controlsVisible && !controlsBlocked && !hideEmbedIdleChrome}
       live={isRtmp && rtmpIsLive}
       hideManualExpand={embed}
       embed={embed}
+      compact={embed && isMobileEmbed}
     />
   ) : null;
 

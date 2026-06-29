@@ -1,5 +1,19 @@
+import { verifyCloudflareAccessRequest, isCloudflareAccessConfigured } from './cloudflare-access.mjs';
 import { hashEmailForAudit } from './legal-acceptance.mjs';
 import { supabaseSelect } from './supabase-admin.mjs';
+
+function readJwtAal(token) {
+  if (!token) return null;
+  try {
+    const segment = token.split('.')[1];
+    if (!segment) return null;
+    const padded = segment.replace(/-/g, '+').replace(/_/g, '/');
+    const payload = JSON.parse(atob(padded));
+    return payload.aal || 'aal1';
+  } catch {
+    return null;
+  }
+}
 
 export async function isUserAdmin(env, userId) {
   const rows = await supabaseSelect(env, 'profiles', `id=eq.${userId}&select=role`);
@@ -7,7 +21,7 @@ export async function isUserAdmin(env, userId) {
 }
 
 export async function verifyAdminUser(request, env, verifySupabaseUser) {
-  const { user, reason } = await verifySupabaseUser(request, env);
+  const { user, reason, token } = await verifySupabaseUser(request, env);
   if (!user) {
     return { user: null, reason };
   }
@@ -15,6 +29,20 @@ export async function verifyAdminUser(request, env, verifySupabaseUser) {
   const isAdmin = await isUserAdmin(env, user.id);
   if (!isAdmin) {
     return { user: null, reason: 'forbidden' };
+  }
+
+  const mfaSatisfied = readJwtAal(token) === 'aal2';
+
+  if (isCloudflareAccessConfigured(env)) {
+    const access = await verifyCloudflareAccessRequest(request, env);
+    if (access.ok || mfaSatisfied) {
+      return { user, reason: null };
+    }
+    return { user: null, reason: 'access_required' };
+  }
+
+  if (!mfaSatisfied) {
+    return { user: null, reason: 'mfa_required' };
   }
 
   return { user, reason: null };

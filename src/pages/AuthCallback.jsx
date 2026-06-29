@@ -3,16 +3,20 @@ import { Link } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
-import { finalizePendingTermsAcceptance } from '@/lib/terms-acceptance';
+import { ensureLegalAcceptanceRecorded } from '@/lib/terms-acceptance';
 
 function clearCallbackUrl() {
   window.history.replaceState({}, document.title, '/auth/callback');
 }
 
-function goToDashboard(session) {
+async function goToDashboard(session) {
   clearCallbackUrl();
   if (session?.user) {
-    void finalizePendingTermsAcceptance(session.user).catch(() => {});
+    try {
+      await ensureLegalAcceptanceRecorded(session.user);
+    } catch {
+      // Dashboard still loads; AuthContext will retry audit sync on next session.
+    }
   }
   window.location.href = `${window.location.origin}/dashboard`;
 }

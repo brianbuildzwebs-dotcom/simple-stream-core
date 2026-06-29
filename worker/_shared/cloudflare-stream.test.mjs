@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildRecordingHlsPlaybackUrl,
+  fetchCloudflareLiveInputStatus,
   pickLatestReadyRecording,
 } from './cloudflare-stream.mjs';
 
@@ -27,4 +28,28 @@ test('pickLatestReadyRecording ignores non-ready videos', () => {
   ]);
 
   assert.equal(latest, null);
+});
+
+test('fetchCloudflareLiveInputStatus uses lifecycle live flag', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('/lifecycle')) {
+      return {
+        ok: true,
+        json: async () => ({ live: true, videoUID: 'abc123', isInput: true }),
+      };
+    }
+    throw new Error(`unexpected fetch: ${url}`);
+  };
+
+  try {
+    const status = await fetchCloudflareLiveInputStatus(
+      { CLOUDFLARE_STREAM_CUSTOMER_CODE: 'cust1' },
+      'input-1'
+    );
+    assert.equal(status.connected, true);
+    assert.equal(status.videoUid, 'abc123');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

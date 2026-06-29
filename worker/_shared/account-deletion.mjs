@@ -1,5 +1,5 @@
 import { isUserAdmin } from './admin-access.mjs';
-import { deleteCloudflareLiveInput } from './cloudflare-stream.mjs';
+import { deleteCloudflareLiveInput, deleteCloudflareVideo } from './cloudflare-stream.mjs';
 import { anonymizeLegalAcceptanceOnAccountDeletion } from './legal-acceptance.mjs';
 import { cancelActiveStripeSubscription } from './subscription-billing.mjs';
 import { supabaseDelete, supabaseSelect, supabaseUpdate } from './supabase-admin.mjs';
@@ -55,6 +55,16 @@ export async function deleteUserAccount(user, env) {
   }
 
   await cancelActiveStripeSubscription(env, user, { immediate: true }).catch(() => null);
+
+  const sermonRows = await supabaseSelect(
+    env,
+    'sermon_recordings',
+    `user_id=eq.${user.id}&select=cloudflare_video_uid`
+  );
+  for (const row of sermonRows ?? []) {
+    await deleteCloudflareVideo(env, row.cloudflare_video_uid);
+  }
+  await supabaseDelete(env, 'sermon_recordings', `user_id=eq.${user.id}`);
 
   const streamKeys = await supabaseSelect(
     env,

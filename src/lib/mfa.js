@@ -54,6 +54,33 @@ export function normalizeQrCodeSrc(qrCode) {
 
 const MFA_ISSUER = 'Simple Streamz';
 
+export function formatMfaError(error) {
+  const message = String(error?.message || error || 'MFA request failed');
+  const lower = message.toLowerCase();
+
+  if (
+    lower.includes('mfa is not enabled') ||
+    lower.includes('enroll is disabled') ||
+    lower.includes('factor enrollment is disabled')
+  ) {
+    return 'Authenticator MFA is not enabled for this Supabase project. In Supabase Dashboard go to Authentication → Multi-Factor, enable TOTP, then try again.';
+  }
+
+  if (lower.includes('already exists') || lower.includes('friendly name')) {
+    return 'A previous authenticator setup is still on this account. Use “Remove incomplete setup” below, then try again.';
+  }
+
+  if (lower.includes('invalid') && (lower.includes('code') || lower.includes('verification'))) {
+    return 'That code did not match. Use the current 6-digit code from your authenticator app and make sure your phone time is set automatically.';
+  }
+
+  if (lower.includes('list factors') || lower.includes('listfactors')) {
+    return `${message} If this persists, confirm TOTP MFA is enabled in Supabase Authentication settings.`;
+  }
+
+  return message;
+}
+
 export function buildTotpUri({ secret, accountName, issuer = MFA_ISSUER }) {
   if (!secret) return '';
 

@@ -3,16 +3,87 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="description" content="Simple Streamz — live church streaming on your website. One embed, safe chat, OBS-ready. 10-day free trial." />
-    <meta name="cf-deploy" content="14" />
+    <meta
+      name="description"
+      content="Simple Streamz — live church streaming on your website. One embed, OBS-ready RTMP, family-safe chat, and analytics. 10-day free trial."
+    />
+    <meta
+      name="keywords"
+      content="church live streaming, church streaming software, embed church stream, OBS church streaming, live worship streaming, church website player"
+    />
+    <meta name="author" content="Simple Streamz" />
+    <meta name="robots" content="index, follow" />
+    <meta name="cf-deploy" content="16" />
     <meta name="theme-color" content="#3b82f6" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Simple Streamz" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/favicon.svg" />
+
+    <link rel="canonical" href="https://simplestreamz.io/" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Simple Streamz" />
+    <meta property="og:title" content="Simple Streamz — Church live streaming on your website" />
+    <meta
+      property="og:description"
+      content="Live church streaming on your website. One embed code, OBS-ready RTMP, family-safe chat, and analytics. 10-day free trial."
+    />
+    <meta property="og:url" content="https://simplestreamz.io/" />
+    <meta property="og:image" content="https://simplestreamz.io/og-image.png?v=1" />
+    <meta property="og:image:alt" content="Simple Streamz logo" />
+    <meta property="og:locale" content="en_US" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Simple Streamz — Church live streaming on your website" />
+    <meta
+      name="twitter:description"
+      content="Live church streaming on your website. One embed, OBS-ready, family-safe chat. 10-day free trial."
+    />
+    <meta name="twitter:image" content="https://simplestreamz.io/og-image.png?v=1" />
+
+    <link rel="icon" type="image/png" href="/simple-streamz-icon.png?v=11" />
+    <link rel="apple-touch-icon" href="/simple-streamz-icon.png?v=11" />
     <link rel="manifest" href="/manifest.json" />
     <title>Simple Streamz — Church live streaming on your website</title>
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://simplestreamz.io/#organization",
+            "name": "Simple Streamz",
+            "url": "https://simplestreamz.io/",
+            "logo": "https://simplestreamz.io/simple-streamz-icon.png?v=11",
+            "email": "support@simplestreamz.com",
+            "description": "Church live streaming platform with embeddable player, OBS integration, and moderated chat."
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://simplestreamz.io/#website",
+            "url": "https://simplestreamz.io/",
+            "name": "Simple Streamz",
+            "publisher": { "@id": "https://simplestreamz.io/#organization" },
+            "inLanguage": "en-US"
+          },
+          {
+            "@type": "SoftwareApplication",
+            "name": "Simple Streamz",
+            "applicationCategory": "MultimediaApplication",
+            "operatingSystem": "Web",
+            "url": "https://simplestreamz.io/",
+            "description": "Live church streaming on your website with one embed, OBS-ready RTMP, and family-safe chat.",
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD",
+              "description": "10-day free trial"
+            }
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

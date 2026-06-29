@@ -6,7 +6,6 @@ import {
   Code2,
   Crown,
   LogOut,
-  Tv,
   ChevronLeft,
   ChevronRight,
   Shield,
@@ -15,16 +14,22 @@ import {
   User,
   LifeBuoy,
   Lightbulb,
+  Archive,
 } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
 import { useSubscription } from '@/hooks/useSubscription';
 import { isPlatformAdmin } from '@/lib/subscription';
 import { hasPendingEnterpriseOffer } from '@/lib/enterprise';
+import AppLogo from '@/components/brand/AppLogo';
+import StreamAlertsBanner from '@/components/dashboard/StreamAlertsBanner';
+import MfaEncourageBanner from '@/components/dashboard/MfaEncourageBanner';
+import usePageMeta from '@/hooks/usePageMeta';
 import { APP_NAME } from '@/lib/brand';
 
 const NAV = [
   { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, exact: true },
   { path: '/dashboard/streams', label: 'Stream Keys', icon: Radio },
+  { path: '/dashboard/sermons', label: 'Sermon Library', icon: Archive },
   { path: '/dashboard/embeds', label: 'Embed Manager', icon: Code2 },
   { path: '/dashboard/chat', label: 'Chat Moderation', icon: MessageSquare },
   { path: '/dashboard/support', label: 'Support', icon: LifeBuoy },
@@ -33,6 +38,13 @@ const NAV = [
 ];
 
 export default function AppLayout() {
+  usePageMeta({
+    title: `Dashboard — ${APP_NAME}`,
+    description: `Manage church live streams, embeds, chat moderation, and sermon recordings in ${APP_NAME}.`,
+    path: '/dashboard',
+    noindex: true,
+  });
+
   const { user, logout } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -46,13 +58,14 @@ export default function AppLayout() {
 
   const SidebarInner = () => (
     <>
-      <div className="flex items-center gap-3 p-4 border-b border-border/50 shrink-0">
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center shrink-0">
-          <Tv className="w-4 h-4 text-white" />
-        </div>
-        {!collapsed && (
-          <span className="font-bold text-foreground font-heading">{APP_NAME}</span>
-        )}
+      <div className="flex items-center justify-center px-2 py-6 border-b border-border/50 shrink-0">
+        <AppLogo
+          variant={collapsed ? 'icon' : 'full'}
+          size={collapsed ? 'lg' : '2xl'}
+          asLink
+          to="/dashboard"
+          className="w-full justify-center"
+        />
       </div>
 
       {!collapsed && enterpriseOfferPending && !onProfilePage && (
@@ -82,7 +95,12 @@ export default function AppLayout() {
         </div>
       )}
 
-      {!collapsed && !isPaid && subscription?.trial_active && daysLeft !== null && daysLeft <= 7 && (
+      {!collapsed &&
+        !isPlatformAdmin(user, subscription) &&
+        !isPaid &&
+        subscription?.trial_active &&
+        daysLeft !== null &&
+        daysLeft <= 7 && (
         <div
           className={`mx-3 mt-3 px-3 py-2 rounded-lg text-xs font-medium border ${
             daysLeft <= 2
@@ -127,7 +145,9 @@ export default function AppLayout() {
       </nav>
 
       <div className="p-3 border-t border-border/50 space-y-1 shrink-0">
-        {!isPaid && subscription?.payment_status !== 'free_admin' && (
+        {!isPlatformAdmin(user, subscription) &&
+          !isPaid &&
+          subscription?.payment_status !== 'free_admin' && (
           <Link
             to="/pricing"
             onClick={() => setMobileOpen(false)}
@@ -160,7 +180,7 @@ export default function AppLayout() {
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-60 flex flex-col border-r border-border/50 bg-card transition-transform duration-300 lg:hidden ${
+        className={`fixed inset-y-0 left-0 z-50 w-72 flex flex-col border-r border-border/50 bg-card transition-transform duration-300 lg:hidden ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -169,7 +189,7 @@ export default function AppLayout() {
 
       <aside
         className={`relative hidden lg:flex flex-col border-r border-border/50 bg-card transition-all duration-300 ${
-          collapsed ? 'w-16' : 'w-60'
+          collapsed ? 'w-[4.5rem]' : 'w-72'
         }`}
       >
         <SidebarInner />
@@ -184,15 +204,15 @@ export default function AppLayout() {
 
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="lg:hidden flex items-center gap-3 px-4 py-3 border-b border-border/50 bg-card shrink-0">
-          <button type="button" onClick={() => setMobileOpen(!mobileOpen)}>
+          <button type="button" onClick={() => setMobileOpen(!mobileOpen)} aria-label="Open menu">
             <Menu className="w-5 h-5 text-muted-foreground" />
           </button>
-          <div className="w-6 h-6 rounded-md bg-gradient-to-br from-primary to-accent flex items-center justify-center">
-            <Tv className="w-3 h-3 text-white" />
-          </div>
-          <span className="font-bold text-sm font-heading">{APP_NAME}</span>
+          <AppLogo variant="icon" size="md" asLink to="/dashboard" />
+          <span className="text-sm font-semibold text-foreground/90">Menu</span>
         </div>
         <main className="flex-1 overflow-auto">
+          <MfaEncourageBanner />
+          <StreamAlertsBanner />
           <Outlet />
         </main>
       </div>

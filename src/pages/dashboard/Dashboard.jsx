@@ -1,17 +1,23 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Radio, Code2, Clock, Crown, Eye, Activity } from 'lucide-react';
+import { Radio, Code2, Clock, Crown, Eye, Activity, Archive, Sparkles } from 'lucide-react';
 import ViewerCount from '@/components/player/ViewerCount';
 import { useAuth } from '@/lib/AuthContext';
 import { useSubscription } from '@/hooks/useSubscription';
 import {
-  fetchUserStreamKeys,
   fetchUserEmbeds,
   getPlanPeriodEndLabel,
   isSubscriptionCancelScheduled,
+  isPlatformAdmin,
+  isTrialNetworkBlocked,
   needsStripeSync,
 } from '@/lib/subscription';
+import { fetchStreamKeys } from '@/lib/stream-keys-api';
+import OnboardingWizard from '@/components/dashboard/OnboardingWizard';
+import SimulcastTeaser from '@/components/dashboard/SimulcastTeaser';
+import SermonRetentionPanel from '@/components/dashboard/SermonRetentionPanel';
+import { fetchSermonRetentionUsage } from '@/lib/sermon-library-api';
 import { confirmCheckoutSession, syncStripeSubscription } from '@/lib/stripe';
 import { toast } from '@/components/ui/use-toast';
 
@@ -24,6 +30,9 @@ export default function Dashboard() {
   const [syncing, setSyncing] = useState(false);
   const [streamKeys, setStreamKeys] = useState([]);
   const [embeds, setEmbeds] = useState([]);
+  const [guideHidden, setGuideHidden] = useState(false);
+  const [guideReopenKey, setGuideReopenKey] = useState(0);
+  const [sermonRetention, setSermonRetention] = useState(null);
 
 
   useEffect(() => {
@@ -81,9 +90,30 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!user?.id) return;
-    fetchUserStreamKeys(user.id).then(setStreamKeys).catch(() => setStreamKeys([]));
+
+    const loadStreams = () => {
+      fetchStreamKeys()
+        .then((payload) => setStreamKeys(payload.streamKeys ?? []))
+        .catch(() => setStreamKeys([]));
+    };
+
+    loadStreams();
     fetchUserEmbeds(user.id).then(setEmbeds).catch(() => setEmbeds([]));
+
+    const interval = window.setInterval(loadStreams, 10000);
+    return () => window.clearInterval(interval);
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id || !hasAccess) {
+      setSermonRetention(null);
+      return;
+    }
+
+    fetchSermonRetentionUsage()
+      .then((payload) => setSermonRetention(payload.retention ?? null))
+      .catch(() => setSermonRetention(null));
+  }, [user?.id, hasAccess]);
 
   const cancelScheduled = isSubscriptionCancelScheduled(subscription);
   const periodEnd = getPlanPeriodEndLabel(subscription);
@@ -108,9 +138,13 @@ export default function Dashboard() {
             : 'Your paid plan is now active on the dashboard.',
         });
       } else {
+        const hint =
+          result.reason === 'no_customer'
+            ? 'Stripe has no customer for this login email. Use the same email you paid with.'
+            : 'If you just paid, wait a moment and try again, or check Stripe webhook delivery.';
         toast({
           title: 'No active Stripe subscription found',
-          description: 'If you just paid, wait a moment and try again.',
+          description: hint,
           variant: 'destructive',
         });
       }
@@ -147,12 +181,72 @@ export default function Dashboard() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
-      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
-        <h1 className="text-2xl font-bold font-heading text-foreground">
-          Welcome back, {user?.full_name?.split(' ')[0] || 'Streamer'}
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">Here&apos;s your streaming overview.</p>
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="flex flex-wrap items-start justify-between gap-3"
+      >
+        <div>
+          <h1 className="text-2xl font-bold font-heading text-foreground">
+            Welcome back, {user?.full_name?.split(' ')[0] || 'Streamer'}
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">Here&apos;s your streaming overview.</p>
+        </div>
+        {hasAccess && guideHidden && (
+          <button
+            type="button"
+            onClick={() => setGuideReopenKey((key) => key + 1)}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-primary/30 bg-primary/10 px-3 py-2 text-xs font-medium text-primary hover:bg-primary/15 transition-colors"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            Sunday setup guide
+          </button>
+        )}
       </motion.div>
+
+      {isTrialNetworkBlocked(subscription) && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="p-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 flex items-center justify-between gap-4 flex-wrap"
+        >
+          <div>
+            <p className="text-sm font-semibold text-foreground">Free trial unavailable from this network</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              To protect against abuse, trial accounts are limited per location. Subscribe on any plan to
+              unlock streaming — shared church offices can contact support.
+            </p>
+          </div>
+          <Link
+            to="/pricing"
+            className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+          >
+            View plans
+          </Link>
+        </motion.div>
+      )}
+
+      {hasAccess && (
+        <OnboardingWizard
+          userId={user?.id}
+          streamKeys={streamKeys}
+          embeds={embeds}
+          reopenKey={guideReopenKey}
+          onHiddenChange={setGuideHidden}
+        />
+      )}
+
+      {hasAccess && sermonRetention?.usage?.actionRequired && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.08 }}
+        >
+          <SermonRetentionPanel retention={sermonRetention} />
+        </motion.div>
+      )}
+
+      {hasAccess && <SimulcastTeaser />}
 
       {isPaid && subscription && (
         <motion.div
@@ -200,7 +294,7 @@ export default function Dashboard() {
         </motion.div>
       )}
 
-      {!isPaid && subscription && (
+      {!isPlatformAdmin(user, subscription) && !isPaid && subscription && (
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -276,38 +370,58 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {liveStreams > 0 && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="p-4 rounded-2xl bg-red-500/10 border border-red-500/30 flex items-center gap-3 flex-wrap"
-        >
-          <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
-          <p className="text-sm font-semibold text-red-400">
-            {liveStreams} stream{liveStreams > 1 ? 's' : ''} currently LIVE
-          </p>
-          <div className="flex gap-2 flex-wrap">
-            {streamKeys
-              .filter((key) => key.is_live)
-              .map((key) => (
-                <ViewerCount
-                  key={key.id}
-                  isLive
-                  externalCount={key.viewer_count || undefined}
-                />
-              ))}
+      <motion.div
+        id="dashboard-live-status"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className={`p-4 rounded-2xl flex items-center gap-3 flex-wrap ${
+          liveStreams > 0
+            ? 'bg-red-500/10 border border-red-500/30'
+            : 'bg-secondary/40 border border-border/50'
+        }`}
+      >
+        <Activity className={`w-4 h-4 ${liveStreams > 0 ? 'text-red-400' : 'text-muted-foreground'}`} />
+        {liveStreams > 0 ? (
+          <>
+            <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+            <p className="text-sm font-semibold text-red-400">
+              {liveStreams} stream{liveStreams > 1 ? 's' : ''} currently LIVE
+            </p>
+            <div className="flex gap-2 flex-wrap">
+              {streamKeys
+                .filter((key) => key.is_live)
+                .map((key) => (
+                  <ViewerCount
+                    key={key.id}
+                    isLive
+                    externalCount={key.viewer_count || undefined}
+                  />
+                ))}
+            </div>
+          </>
+        ) : (
+          <div>
+            <p className="text-sm font-semibold text-foreground">Stream status: Offline</p>
+            <p className="text-xs text-muted-foreground">
+              Start OBS or vMix to go live. Status refreshes every 10 seconds.
+            </p>
           </div>
-          <Link to="/dashboard/streams" className="ml-auto text-xs text-red-400 hover:underline">
-            Manage →
-          </Link>
-        </motion.div>
-      )}
+        )}
+        <Link
+          to="/dashboard/streams"
+          className={`ml-auto text-xs hover:underline ${
+            liveStreams > 0 ? 'text-red-400' : 'text-primary'
+          }`}
+        >
+          Stream Keys →
+        </Link>
+      </motion.div>
 
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.3 }}
-        className="grid grid-cols-1 sm:grid-cols-2 gap-4"
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
       >
         <Link
           to="/dashboard/streams"
@@ -331,6 +445,18 @@ export default function Dashboard() {
           </p>
           <p className="text-sm text-muted-foreground mt-1">
             Create tracked embed players with unique codes.
+          </p>
+        </Link>
+        <Link
+          to="/dashboard/sermons"
+          className="group p-5 bg-card rounded-2xl border border-border/50 hover:border-primary/40 hover:bg-primary/5 transition-all"
+        >
+          <Archive className="w-6 h-6 text-amber-400 mb-3" />
+          <p className="font-semibold text-foreground group-hover:text-primary transition-colors">
+            Sermon Library
+          </p>
+          <p className="text-sm text-muted-foreground mt-1">
+            Play or download past services recorded from your streams.
           </p>
         </Link>
       </motion.div>

@@ -169,8 +169,86 @@ html.embed-route.embed-mobile .embed-player-shell iframe {
   border-radius: 0 !important;
 }
 
-.rtmp-tap-overlay {
+.rtmp-tap-overlay,
+.rtmp-waiting-overlay {
   container-type: size;
+}
+
+.rtmp-waiting-overlay {
+  /* Leave room for compact embed controls + viewer/chat chrome */
+  padding-bottom: max(3.25rem, calc(env(safe-area-inset-bottom, 0px) + 2.75rem));
+  padding-top: max(0.75rem, calc(env(safe-area-inset-top, 0px) + 0.25rem));
+}
+
+@container (max-height: 340px) {
+  .rtmp-waiting-overlay .waiting-overlay-icon {
+    width: 1.75rem;
+    height: 1.75rem;
+    margin-bottom: 0.5rem !important;
+  }
+
+  .rtmp-waiting-overlay .waiting-overlay-title {
+    font-size: 0.875rem;
+    line-height: 1.3;
+  }
+
+  .rtmp-waiting-overlay .waiting-overlay-body {
+    margin-top: 0.35rem !important;
+    font-size: 0.75rem;
+    line-height: 1.4;
+  }
+
+  .rtmp-waiting-overlay .waiting-overlay-schedule {
+    margin-top: 0.65rem !important;
+    padding: 0.65rem 0.75rem !important;
+  }
+
+  .rtmp-waiting-overlay .waiting-overlay-schedule-headline {
+    font-size: 0.75rem;
+    line-height: 1.35;
+  }
+
+  .rtmp-waiting-overlay .waiting-overlay-countdown {
+    font-size: 1rem !important;
+  }
+
+  .rtmp-waiting-overlay .waiting-overlay-schedule-detail {
+    margin-top: 0.35rem !important;
+    font-size: 0.6875rem;
+    line-height: 1.35;
+  }
+
+  .rtmp-waiting-overlay .waiting-overlay-footer {
+    display: none;
+  }
+}
+
+@container (max-height: 260px) {
+  .rtmp-tap-overlay .embed-tap-play-btn {
+    width: 52px;
+    height: 52px;
+    min-width: 52px;
+    min-height: 52px;
+    max-width: 52px;
+    max-height: 52px;
+    margin-bottom: 0.5rem !important;
+  }
+
+  .rtmp-tap-overlay .embed-tap-play-title {
+    font-size: 13px;
+    line-height: 1.25;
+  }
+
+  .rtmp-tap-overlay .embed-tap-play-subtitle {
+    font-size: 11px;
+    line-height: 1.35;
+    margin-top: 0.35rem !important;
+  }
+
+  .rtmp-tap-overlay .tap-overlay-countdown {
+    margin-top: 0.5rem !important;
+    font-size: 1rem !important;
+  }
 }
 
 .embed-tap-play-btn {
@@ -217,6 +295,8 @@ html.embed-route.embed-mobile .embed-tap-play-title {
 html.embed-route.embed-mobile .embed-tap-play-subtitle {
   font-size: 12px;
 }
+
+
 
 html.embed-fs-mode,
 html.embed-fs-mode body,

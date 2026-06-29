@@ -1,7 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import {
-  Tv,
   Zap,
   Play,
   Code2,
@@ -16,25 +15,13 @@ import {
   Users,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import VideoPlayer from '@/components/player/VideoPlayer';
+import HeroEmbedPreview from '@/components/marketing/HeroEmbedPreview';
 import PublicHeader from '@/components/layout/PublicHeader';
 import { useAuth } from '@/lib/AuthContext';
 import { APP_NAME } from '@/lib/brand';
+import AppLogo from '@/components/brand/AppLogo';
 import { CHURCH_FAQ, CHURCH_VALUE_PROPS } from '@/lib/church-plans';
-
-const DEMO_SOURCE = {
-  type: 'file',
-  url: '/demo-stream.mp4',
-  fileName: 'Sunday worship stream preview',
-};
-
-const DEMO_WATERMARK = {
-  enabled: true,
-  text: `© ${APP_NAME}`,
-  position: 'bottom_right',
-  size: 'medium',
-  opacity: 0.75,
-};
+import usePageMeta from '@/hooks/usePageMeta';
 
 const FEATURES = [
   {
@@ -67,7 +54,7 @@ const STEPS = [
   },
   {
     step: '2',
-    title: 'Connect Sunday’s stream',
+    title: 'Connect your stream',
     desc: 'Create a stream key, plug OBS in, and copy one embed code for your website.',
   },
   {
@@ -86,6 +73,13 @@ const GATHERINGS = [
 
 export default function Home() {
   const { isAuthenticated } = useAuth();
+
+  usePageMeta({
+    title: `${APP_NAME} — Church live streaming on your website`,
+    description:
+      'Live church streaming on your website. One embed code, OBS-ready RTMP, family-safe chat, and analytics. 10-day free trial — no credit card.',
+    path: '/',
+  });
 
   return (
     <div className="min-h-screen bg-background">
@@ -170,7 +164,7 @@ export default function Home() {
           >
             <div className="flex flex-wrap gap-2">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-card border border-border/50 text-xs text-muted-foreground font-medium">
-                <Play className="w-3 h-3 text-primary" /> Sunday service preview
+                <Play className="w-3 h-3 text-primary" /> Same embed player churches use
               </span>
               <span className="px-3 py-1 rounded-full bg-card border border-border/50 text-xs text-muted-foreground">
                 Chat-ready
@@ -178,18 +172,11 @@ export default function Home() {
               <span className="px-3 py-1 rounded-full bg-card border border-border/50 text-xs text-muted-foreground">
                 Mobile-friendly
               </span>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-card border border-border/50 text-xs text-muted-foreground">
+                <Heart className="w-3 h-3 text-primary" /> Give-ready
+              </span>
             </div>
-            <div className="relative rounded-2xl overflow-hidden border border-border/50 shadow-2xl shadow-primary/5">
-              <VideoPlayer
-                source={DEMO_SOURCE}
-                watermark={DEMO_WATERMARK}
-                settings={{ chat_enabled: true }}
-                autoPlayLoop
-              />
-              <div className="absolute top-3 left-3 px-2.5 py-1 rounded-lg bg-black/60 backdrop-blur text-white/80 text-[10px] font-medium border border-white/10">
-                DEMO — Your church stream looks like this on your site
-              </div>
-            </div>
+            <HeroEmbedPreview />
             <p className="text-xs text-muted-foreground text-center">
               FaithGather and FaithCampus plans remove the watermark on your live player.
             </p>
@@ -356,10 +343,7 @@ export default function Home() {
 
       <footer className="border-t border-border/30 py-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
-          <div className="flex items-center gap-2">
-            <Tv className="w-4 h-4 text-primary" />
-            <span>{APP_NAME}</span>
-          </div>
+          <AppLogo variant="full" size="xl" asLink to="/" />
           <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
             <Link to="/pricing" className="hover:text-foreground transition-colors">
               Church plans

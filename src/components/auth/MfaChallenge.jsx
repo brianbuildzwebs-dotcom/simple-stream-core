@@ -4,7 +4,7 @@ import { Loader2, Shield } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
-import { listTotpFactors } from '@/lib/mfa';
+import { formatMfaError, listTotpFactors } from '@/lib/mfa';
 
 export default function MfaChallenge({ onVerified }) {
   const [code, setCode] = useState('');
@@ -23,7 +23,7 @@ export default function MfaChallenge({ onVerified }) {
         }
         setFactorId(verified.id);
       })
-      .catch((bootError) => setError(bootError.message || 'Could not load MFA settings'))
+      .catch((bootError) => setError(formatMfaError(bootError)))
       .finally(() => setBooting(false));
   }, []);
 
@@ -44,7 +44,7 @@ export default function MfaChallenge({ onVerified }) {
 
       onVerified?.();
     } catch (verifyError) {
-      setError(verifyError.message || 'Invalid verification code');
+      setError(formatMfaError(verifyError));
     } finally {
       setLoading(false);
     }

@@ -35,6 +35,7 @@ import {
   updateEmbedInstance,
 } from '@/lib/embeds';
 import WatermarkConfigurator from '@/components/embeds/WatermarkConfigurator';
+import ServiceScheduleEditor from '@/components/dashboard/ServiceScheduleEditor';
 import { toast } from '@/components/ui/use-toast';
 
 function streamKeyLabel(streamKeys, streamKeyId) {
@@ -107,21 +108,34 @@ function StreamKeyEditor({ embed, streamKeys, onSave }) {
 function OfflinePlaybackEditor({ embed, onSave }) {
   const [holdingTitle, setHoldingTitle] = useState(embed.holding_title || '');
   const [holdingMessage, setHoldingMessage] = useState(embed.holding_message || '');
+  const [replayWhenOffline, setReplayWhenOffline] = useState(embed.replay_when_offline === true);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setHoldingTitle(embed.holding_title || '');
     setHoldingMessage(embed.holding_message || '');
-  }, [embed.holding_title, embed.holding_message]);
+    setReplayWhenOffline(embed.replay_when_offline === true);
+  }, [embed.holding_title, embed.holding_message, embed.replay_when_offline]);
 
-  const save = () => {
-    onSave({
-      holding_title: holdingTitle.trim() || null,
-      holding_message: holdingMessage.trim() || null,
-      replay_when_offline: false,
-    });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  const save = async (patch = {}) => {
+    setSaving(true);
+    try {
+      await onSave({
+        holding_title: holdingTitle.trim() || null,
+        holding_message: holdingMessage.trim() || null,
+        replay_when_offline: replayWhenOffline,
+        ...patch,
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch {
+      if ('replay_when_offline' in patch) {
+        setReplayWhenOffline(embed.replay_when_offline === true);
+      }
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -148,16 +162,35 @@ function OfflinePlaybackEditor({ embed, onSave }) {
           className="w-full bg-secondary/50 border border-border/50 rounded-xl px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/50 resize-y"
         />
       </div>
-      <p className="rounded-xl border border-border/50 bg-secondary/30 px-3 py-2 text-[11px] text-muted-foreground">
-        Sermon library and on-demand replays are coming soon. Live streaming and chat work today;
-        recordings are saved automatically in the background for a future release.
-      </p>
+      <label className="flex items-start gap-3 rounded-xl border border-border/50 bg-secondary/30 px-3 py-3 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={replayWhenOffline}
+          disabled={saving}
+          onChange={(e) => {
+            const checked = e.target.checked;
+            setReplayWhenOffline(checked);
+            save({ replay_when_offline: checked });
+          }}
+          className="mt-0.5"
+        />
+        <span className="text-[11px] text-muted-foreground leading-relaxed">
+          <span className="text-foreground font-medium">Show last service when offline</span> — when
+          you are not live, visitors can watch your most recent recording on this embed. When you go
+          live, the player switches to the live feed automatically. Manage all past services in{' '}
+          <Link to="/dashboard/sermons" className="text-primary hover:underline">
+            Sermon Library
+          </Link>
+          .
+        </span>
+      </label>
       <button
         type="button"
-        onClick={save}
-        className="px-3 py-2 rounded-xl bg-secondary text-xs font-medium text-foreground hover:bg-secondary/80 transition-colors"
+        onClick={() => save()}
+        disabled={saving}
+        className="px-3 py-2 rounded-xl bg-secondary text-xs font-medium text-foreground hover:bg-secondary/80 transition-colors disabled:opacity-60"
       >
-        {saved ? <Check className="w-3.5 h-3.5 text-green-400" /> : 'Save holding screen'}
+        {saved ? <Check className="w-3.5 h-3.5 text-green-400" /> : saving ? 'Saving…' : 'Save holding screen'}
       </button>
     </div>
   );
@@ -282,8 +315,17 @@ export default function EmbedManager() {
 
     loadAll();
 
+    const interval = window.setInterval(() => {
+      loadStreamKeys()
+        .then((selectableKeys) => {
+          if (!cancelled) setStreamKeys(selectableKeys);
+        })
+        .catch(() => {});
+    }, 10000);
+
     return () => {
       cancelled = true;
+      window.clearInterval(interval);
     };
   }, [user?.id, loadStreamKeys, searchParams]);
 
@@ -358,8 +400,10 @@ export default function EmbedManager() {
       const updated = await updateEmbedInstance(id, data);
       setEmbeds((prev) => prev.map((e) => (e.id === id ? updated : e)));
       toast({ title: 'Embed updated' });
+      return updated;
     } catch (error) {
       toast({ title: 'Update failed', description: error.message, variant: 'destructive' });
+      throw error;
     }
   };
 
@@ -407,9 +451,11 @@ export default function EmbedManager() {
           Each embed has a unique tracking code. Copy the full block (style, iframe, and one script tag) and paste it into your site.
           Replace any older embed HTML completely — older copies included a second inline script that causes desktop chat flashing.
           On Hostinger, use an HTML/embed widget and stretch the element to full section width on mobile (not a small fixed box).
-          Offline visitors see your holding screen and can chat until you go live. Sermon replays and a video library are coming soon.
+          Offline visitors see your holding screen and can chat until you go live.
         </p>
       </div>
+
+      <ServiceScheduleEditor />
 
       <div className="bg-card rounded-2xl border border-border/50 p-4 space-y-3">
         <p className="text-sm font-semibold text-foreground">Create New Embed</p>

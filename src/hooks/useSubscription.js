@@ -9,7 +9,8 @@ import { syncStripeSubscription } from '@/lib/stripe';
 
 function needsStripeReconcile(subscription, access, user) {
   if (subscription?.payment_status === 'canceled') return false;
-  if (!access.isPaid && user?.role !== 'admin') return true;
+  if (!access.isPaid) return true;
+  if (user?.role === 'admin' || subscription?.payment_status === 'free_admin') return false;
   return !subscription?.tier_name || !subscription?.subscription_tier_id;
 }
 

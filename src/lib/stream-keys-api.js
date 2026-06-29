@@ -14,6 +14,7 @@ export function streamKeysForEmbedSelect(streamKeys) {
 
 export function streamKeyOptionLabel(key) {
   const name = key.stream_name || 'Untitled stream';
+  if (key.is_live) return `${name} (LIVE)`;
   if (key.status === 'inactive') return `${name} (inactive)`;
   return name;
 }

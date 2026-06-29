@@ -6,10 +6,12 @@ import { SUPPORT_EMAIL } from '@/lib/brand';
 import PublicHeader from '@/components/layout/PublicHeader';
 import { useAuth } from '@/lib/AuthContext';
 import { useSubscription } from '@/hooks/useSubscription';
+import { isTrialNetworkBlocked } from '@/lib/subscription';
 
 export default function Paywall() {
   const { user, isAuthenticated, isLoadingAuth, authChecked } = useAuth();
-  const { hasAccess, loading } = useSubscription(user);
+  const { hasAccess, loading, subscription } = useSubscription(user);
+  const trialBlocked = isTrialNetworkBlocked(subscription);
 
   if (isLoadingAuth || !authChecked || (isAuthenticated && loading)) {
     return (
@@ -36,10 +38,13 @@ export default function Paywall() {
           <Lock className="w-8 h-8 text-primary" />
         </div>
         <div>
-          <h1 className="text-3xl font-bold font-heading text-foreground">Your trial has ended</h1>
+          <h1 className="text-3xl font-bold font-heading text-foreground">
+            {trialBlocked ? 'Subscribe to get started' : 'Your trial has ended'}
+          </h1>
           <p className="text-muted-foreground mt-3">
-            Your 10-day free trial is over. Upgrade to a paid plan to continue streaming,
-            accessing your stream keys, and using your embed players.
+            {trialBlocked
+              ? 'Free trials are limited per location to prevent abuse. Choose any plan below to unlock streaming, stream keys, and embeds. Shared church offices can contact support.'
+              : 'Your 10-day free trial is over. Upgrade to a paid plan to continue streaming, accessing your stream keys, and using your embed players.'}
           </p>
         </div>
         <div className="space-y-3">

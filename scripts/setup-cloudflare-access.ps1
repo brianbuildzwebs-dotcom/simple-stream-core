@@ -7,7 +7,7 @@
 $ErrorActionPreference = "Stop"
 
 $AccountId = "be90b9dfc7dfcf09a335189f4499ef4f"
-$WorkerHost = "simple-stream-core.brianbuildzwebs.workers.dev"
+$WorkerHost = "simplestreamz.io"
 
 Write-Host ""
 Write-Host "Simple Streamz - Cloudflare Access setup" -ForegroundColor Cyan

@@ -422,8 +422,9 @@ export default function ChatOverlay({
           {giveEnabled && giveUrl && (
             <a
               href={giveUrl}
-              target="_blank"
-              rel="noopener noreferrer"
+              target={giveUrl === '#' ? undefined : '_blank'}
+              rel={giveUrl === '#' ? undefined : 'noopener noreferrer'}
+              onClick={giveUrl === '#' ? (e) => e.preventDefault() : undefined}
               className="inline-flex items-center gap-1.5 rounded-full bg-primary/20 border border-primary/40 px-2.5 py-1 text-[11px] font-semibold text-primary-foreground hover:bg-primary/30 transition-colors touch-manipulation shrink-0"
               aria-label={giveLabel || 'Give'}
             >
@@ -465,7 +466,13 @@ export default function ChatOverlay({
                 <button
                   type="button"
                   onClick={async () => {
-                    await supabase.from('messages').update({ is_deleted: true }).eq('id', msg.id);
+                    const { error } = await supabase
+                      .from('messages')
+                      .update({ is_deleted: true })
+                      .eq('id', msg.id);
+                    if (!error) {
+                      applyMessages((prev) => prev.filter((row) => row.id !== msg.id));
+                    }
                   }}
                   className="flex-shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 text-red-400 hover:text-red-300 transition-all mt-0.5 touch-manipulation"
                   aria-label="Delete message"

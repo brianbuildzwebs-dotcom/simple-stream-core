@@ -10,6 +10,30 @@ import {
   enableCloudflareLiveInputPlayback,
   normalizeCloudflareRtmpsIngestUrl,
 } from './_shared/cloudflare-stream.mjs';
+import { initUserSubscriptionForUser } from './_shared/subscription-init.mjs';
+import {
+  listUserStreamAlerts,
+  markStreamAlertsRead,
+  runStreamMonitorCron,
+  syncStreamKeyConnectivity,
+} from './_shared/stream-monitor.mjs';
+import {
+  deleteSermonRecording,
+  getSermonRetentionUsage,
+  listUserSermonRecordings,
+  prepareSermonDownload,
+  runSermonLibraryCron,
+} from './_shared/sermon-library.mjs';
+import {
+  getUserServiceSchedule,
+  saveUserServiceSchedule,
+} from './_shared/service-schedule.mjs';
+import {
+  getAdminPlatformSettings,
+  getPublicLaunchConfig,
+  patchAdminPlatformSettings,
+} from './_shared/platform-settings.mjs';
+import { deleteCloudflareVideo } from './_shared/cloudflare-stream.mjs';
 import { resolveEmbedConfig, recordEmbedView } from './_shared/embed-config.mjs';
 import {
   assertPlatformAccess,
@@ -40,6 +64,7 @@ import {
   cancelUserSubscription,
   createBillingPortalSession,
 } from './_shared/subscription-billing.mjs';
+import { resolveBillingReturnUrl } from './_shared/stripe-customer.mjs';
 import {
   activateFromCheckoutSession,
   handleStripeWebhookEvent,
@@ -56,6 +81,9 @@ import {
   supabaseSelect,
   supabaseUpdate,
 } from './_shared/supabase-admin.mjs';
+import { checkRateLimit, rateLimitedResponse } from './_shared/rate-limit.mjs';
+import { normalizeGiveUrl } from './_shared/give-link.mjs';
+import { turnstileConfigured, verifyTurnstileToken } from './_shared/turnstile.mjs';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -96,18 +124,29 @@ async function assertUserStreamKey(env, userId, streamKeyId) {
   }
 }
 
-function authConfigStatus(env) {
+function publicAuthHealth(env) {
   const stripeKey = normalizeStripeSecretKey(env.STRIPE_SECRET_KEY);
   return {
-    supabase_url: Boolean(env.SUPABASE_URL?.trim()),
-    supabase_anon_key: Boolean(env.SUPABASE_ANON_KEY?.trim()),
-    supabase_service_role_key: Boolean(env.SUPABASE_SERVICE_ROLE_KEY?.trim()),
-    cloudflare_stream: Boolean(
-      env.CLOUDFLARE_ACCOUNT_ID?.trim() && env.CLOUDFLARE_API_TOKEN?.trim()
+    ok: Boolean(
+      env.SUPABASE_URL?.trim() &&
+        (env.SUPABASE_ANON_KEY?.trim() || env.SUPABASE_SERVICE_ROLE_KEY?.trim()) &&
+        stripeKey &&
+        env.STRIPE_WEBHOOK_SECRET?.trim()
     ),
-    stripe_checkout: Boolean(stripeKey),
+    auth: Boolean(env.SUPABASE_URL?.trim()),
+    billing: Boolean(stripeKey && env.STRIPE_WEBHOOK_SECRET?.trim()),
+    streaming: Boolean(env.CLOUDFLARE_ACCOUNT_ID?.trim() && env.CLOUDFLARE_API_TOKEN?.trim()),
+    email: Boolean(env.EMAIL?.send),
+    turnstile: turnstileConfigured(env),
+  };
+}
+
+function adminAuthConfigStatus(env) {
+  const stripeKey = normalizeStripeSecretKey(env.STRIPE_SECRET_KEY);
+  return {
+    ...publicAuthHealth(env),
+    supabase_service_role_key: Boolean(env.SUPABASE_SERVICE_ROLE_KEY?.trim()),
     stripe_key_format_valid: isValidStripeSecretKey(stripeKey),
-    stripe_key_prefix: stripeKey ? `${stripeKey.slice(0, 12)}...` : null,
     stripe_webhook: Boolean(env.STRIPE_WEBHOOK_SECRET?.trim()),
   };
 }
@@ -122,6 +161,22 @@ function subscriptionRequiredResponse() {
   );
 }
 
+function adminDeniedResponse(reason) {
+  if (reason === 'mfa_required') {
+    return Response.json(
+      { error: 'Admin MFA is required for this action.', code: 'mfa_required' },
+      { status: 403, headers: CORS }
+    );
+  }
+  if (reason === 'access_required' || reason === 'missing_access_jwt' || reason === 'invalid_access_jwt') {
+    return Response.json(
+      { error: 'Cloudflare Access is required for admin API calls.', code: 'access_required' },
+      { status: 403, headers: CORS }
+    );
+  }
+  return Response.json({ error: 'Forbidden' }, { status: 403, headers: CORS });
+}
+
 async function verifySupabaseUser(request, env) {
   const authHeader = request.headers.get('Authorization') || '';
   const token = authHeader.replace(/^Bearer\s+/i, '').trim();
@@ -129,13 +184,13 @@ async function verifySupabaseUser(request, env) {
   const apiKey = env.SUPABASE_ANON_KEY?.trim() || env.SUPABASE_SERVICE_ROLE_KEY?.trim();
 
   if (!token) {
-    return { user: null, reason: 'no_token' };
+    return { user: null, token: null, reason: 'no_token' };
   }
   if (!supabaseUrl) {
-    return { user: null, reason: 'missing_supabase_url' };
+    return { user: null, token: null, reason: 'missing_supabase_url' };
   }
   if (!apiKey) {
-    return { user: null, reason: 'missing_supabase_key' };
+    return { user: null, token: null, reason: 'missing_supabase_key' };
   }
 
   const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
@@ -146,15 +201,15 @@ async function verifySupabaseUser(request, env) {
   });
 
   if (!response.ok) {
-    return { user: null, reason: 'invalid_token' };
+    return { user: null, token: null, reason: 'invalid_token' };
   }
 
   const user = await response.json();
   if (!user?.id) {
-    return { user: null, reason: 'invalid_token' };
+    return { user: null, token: null, reason: 'invalid_token' };
   }
 
-  return { user, reason: null };
+  return { user, token, reason: null };
 }
 
 function unauthorizedResponse(reason) {
@@ -260,9 +315,38 @@ async function createStripeCheckoutSession({ tier, user, successUrl, cancelUrl, 
   return payload;
 }
 
+function isLegacyWorkersDevHost(hostname) {
+  return String(hostname || '').toLowerCase().endsWith('.workers.dev');
+}
+
+/** Send browsers from *.workers.dev to PUBLIC_APP_URL; keep API POSTs for legacy webhooks. */
+function maybeRedirectLegacyWorkersDevHost(request, url, env) {
+  if (!isLegacyWorkersDevHost(url.hostname)) {
+    return null;
+  }
+
+  const method = request.method.toUpperCase();
+  if (method !== 'GET' && method !== 'HEAD') {
+    return null;
+  }
+
+  const canonicalBase =
+    env.PUBLIC_APP_URL?.trim().replace(/\/$/, '') || 'https://simplestreamz.io';
+  const target = new URL(`${url.pathname}${url.search}`, canonicalBase);
+  if (target.hostname.toLowerCase() === url.hostname.toLowerCase()) {
+    return null;
+  }
+
+  return Response.redirect(target.toString(), 301);
+}
+
 const handler = {
   async fetch(request, env) {
     const url = new URL(request.url);
+    const legacyRedirect = maybeRedirectLegacyWorkersDevHost(request, url, env);
+    if (legacyRedirect) {
+      return legacyRedirect;
+    }
 
     if (
       url.pathname === '/api/admin/stats' ||
@@ -279,8 +363,8 @@ const handler = {
       try {
         const { user, reason } = await verifyAdminUser(request, env, verifySupabaseUser);
         if (!user) {
-          if (reason === 'forbidden') {
-            return Response.json({ error: 'Forbidden' }, { status: 403, headers: CORS });
+          if (reason === 'forbidden' || reason === 'mfa_required' || reason === 'access_required' || reason === 'missing_access_jwt' || reason === 'invalid_access_jwt') {
+            return adminDeniedResponse(reason);
           }
           return unauthorizedResponse(reason);
         }
@@ -322,8 +406,8 @@ const handler = {
       try {
         const { user, reason } = await verifyAdminUser(request, env, verifySupabaseUser);
         if (!user) {
-          if (reason === 'forbidden') {
-            return Response.json({ error: 'Forbidden' }, { status: 403, headers: CORS });
+          if (reason === 'forbidden' || reason === 'mfa_required' || reason === 'access_required' || reason === 'missing_access_jwt' || reason === 'invalid_access_jwt') {
+            return adminDeniedResponse(reason);
           }
           return unauthorizedResponse(reason);
         }
@@ -373,6 +457,11 @@ const handler = {
       }
 
       try {
+        const rate = await checkRateLimit(env, request, 'enterprise-request', { limit: 8, windowSec: 3600 });
+        if (!rate.ok) {
+          return rateLimitedResponse(CORS);
+        }
+
         const { user, reason } = await verifySupabaseUser(request, env);
         if (!user) {
           return unauthorizedResponse(reason);
@@ -433,14 +522,69 @@ const handler = {
       }
     }
 
-    if (url.pathname === '/api/auth/status') {
+    if (url.pathname === '/api/health' || url.pathname === '/api/auth/status') {
       if (request.method === 'OPTIONS') {
         return new Response(null, { headers: CORS });
       }
       if (request.method !== 'GET') {
         return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
       }
-      return Response.json(authConfigStatus(env), { headers: CORS });
+      if (url.pathname === '/api/health') {
+        return Response.json(
+          {
+            status: 'ok',
+            service: 'simple-stream-core',
+            ...publicAuthHealth(env),
+          },
+          { headers: CORS }
+        );
+      }
+      const { user, reason } = await verifyAdminUser(request, env, verifySupabaseUser);
+      if (user) {
+        return Response.json(adminAuthConfigStatus(env), { headers: CORS });
+      }
+      if (reason === 'forbidden' || reason === 'mfa_required' || reason === 'access_required' || reason === 'missing_access_jwt' || reason === 'invalid_access_jwt') {
+        return adminDeniedResponse(reason);
+      }
+      return Response.json(publicAuthHealth(env), { headers: CORS });
+    }
+
+    if (url.pathname === '/api/turnstile/verify') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: CORS });
+      }
+      if (request.method !== 'POST') {
+        return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
+      }
+
+      try {
+        const rate = await checkRateLimit(env, request, 'turnstile-verify', { limit: 20, windowSec: 60 });
+        if (!rate.ok) {
+          return rateLimitedResponse(CORS);
+        }
+
+        const body = await request.json().catch(() => ({}));
+        const ip =
+          request.headers.get('cf-connecting-ip') ||
+          request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+          'unknown';
+        const result = await verifyTurnstileToken(env, body.token, ip);
+
+        if (!result.success) {
+          return Response.json(
+            { success: false, error: result.error || 'verification_failed' },
+            { status: 400, headers: CORS }
+          );
+        }
+
+        return Response.json({ success: true, skipped: Boolean(result.skipped) }, { headers: CORS });
+      } catch (error) {
+        Sentry.captureException(error);
+        return Response.json(
+          { success: false, error: error.message || 'turnstile_verify_failed' },
+          { status: 500, headers: CORS }
+        );
+      }
     }
 
     if (url.pathname === '/api/stripe/webhook') {
@@ -458,7 +602,7 @@ const handler = {
         const valid = await verifyStripeWebhookSignature(
           payload,
           signature,
-          env.STRIPE_WEBHOOK_SECRET
+          env.STRIPE_WEBHOOK_SECRET?.trim()
         );
 
         if (!valid) {
@@ -567,9 +711,7 @@ const handler = {
         }
 
         const body = await request.json().catch(() => ({}));
-        const returnUrl =
-          (body.returnUrl || '').trim() ||
-          `${new URL(request.url).origin}/dashboard/profile?billing=return`;
+        const returnUrl = resolveBillingReturnUrl(request, env, body.returnUrl);
 
         const session = await createBillingPortalSession(user, env, returnUrl);
         return Response.json(session, { headers: CORS });
@@ -610,6 +752,42 @@ const handler = {
       }
     }
 
+    if (url.pathname === '/api/subscription/init') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: CORS });
+      }
+      if (request.method !== 'POST') {
+        return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
+      }
+
+      try {
+        const rate = await checkRateLimit(env, request, 'subscription-init', { limit: 12, windowSec: 3600 });
+        if (!rate.ok) {
+          return rateLimitedResponse(CORS);
+        }
+
+        const { user, reason } = await verifySupabaseUser(request, env);
+        if (!user) {
+          return unauthorizedResponse(reason);
+        }
+
+        const result = await initUserSubscriptionForUser(env, { user, request });
+        return Response.json(
+          {
+            subscription: result.subscription,
+            created: result.created,
+          },
+          { headers: CORS }
+        );
+      } catch (error) {
+        Sentry.captureException(error);
+        return Response.json(
+          { error: error.message || 'subscription_init_failed' },
+          { status: 500, headers: CORS }
+        );
+      }
+    }
+
     if (url.pathname === '/api/legal/accept') {
       if (request.method === 'OPTIONS') {
         return new Response(null, { headers: CORS });
@@ -619,6 +797,11 @@ const handler = {
       }
 
       try {
+        const rate = await checkRateLimit(env, request, 'legal-accept', { limit: 30, windowSec: 3600 });
+        if (!rate.ok) {
+          return rateLimitedResponse(CORS);
+        }
+
         const { user, reason } = await verifySupabaseUser(request, env);
         if (!user) {
           return unauthorizedResponse(reason);
@@ -686,6 +869,11 @@ const handler = {
       }
 
       try {
+        const rate = await checkRateLimit(env, request, 'stripe-checkout', { limit: 20, windowSec: 3600 });
+        if (!rate.ok) {
+          return rateLimitedResponse(CORS);
+        }
+
         const { user, reason } = await verifySupabaseUser(request, env);
         if (!user) {
           return unauthorizedResponse(reason);
@@ -762,12 +950,13 @@ const handler = {
               if (row.cloudflare_input_id) {
                 await enableCloudflareLiveInputPlayback(env, row.cloudflare_input_id);
               }
+              const synced = await syncStreamKeyConnectivity(env, row);
               return {
-                ...row,
-                rtmp_ingest_url: normalizeCloudflareRtmpsIngestUrl(row.rtmp_ingest_url),
+                ...synced,
+                rtmp_ingest_url: normalizeCloudflareRtmpsIngestUrl(synced.rtmp_ingest_url),
                 hls_playback_url:
-                  buildHlsPlaybackUrl(env.CLOUDFLARE_STREAM_CUSTOMER_CODE, row.cloudflare_input_id) ||
-                  row.hls_playback_url,
+                  buildHlsPlaybackUrl(env.CLOUDFLARE_STREAM_CUSTOMER_CODE, synced.cloudflare_input_id) ||
+                  synced.hls_playback_url,
               };
             })
           );
@@ -847,6 +1036,16 @@ const handler = {
             return Response.json({ error: 'Stream key not found' }, { status: 404, headers: CORS });
           }
 
+          const sermonRows =
+            (await supabaseSelect(
+              env,
+              'sermon_recordings',
+              `stream_key_id=eq.${keyId}&select=cloudflare_video_uid`
+            )) ?? [];
+          for (const row of sermonRows) {
+            await deleteCloudflareVideo(env, row.cloudflare_video_uid);
+          }
+          await supabaseDelete(env, 'sermon_recordings', `stream_key_id=eq.${keyId}`);
           await deleteCloudflareLiveInput(env, existing.cloudflare_input_id);
           await supabaseDelete(env, 'stream_keys', `id=eq.${keyId}`);
           return Response.json({ success: true }, { headers: CORS });
@@ -1003,6 +1202,14 @@ const handler = {
             }
           }
 
+          if ('give_url' in patch) {
+            try {
+              patch.give_url = patch.give_url ? normalizeGiveUrl(patch.give_url) : null;
+            } catch (error) {
+              return Response.json({ error: error.message }, { status: 400, headers: CORS });
+            }
+          }
+
           if (patch.stream_key_id) {
             await assertUserStreamKey(env, user.id, patch.stream_key_id);
           }
@@ -1012,7 +1219,29 @@ const handler = {
             patch.is_watermark_enabled = true;
           }
 
-          const updated = await supabaseUpdate(env, 'embed_instances', `id=eq.${embedId}`, patch);
+          let updated;
+          try {
+            updated = await supabaseUpdate(env, 'embed_instances', `id=eq.${embedId}`, patch);
+          } catch (error) {
+            const message = String(error?.message || error || '');
+            if (
+              message.includes('replay_when_offline') ||
+              message.includes('holding_title') ||
+              message.includes('holding_message') ||
+              message.includes('schema cache') ||
+              message.includes('PGRST204')
+            ) {
+              return Response.json(
+                {
+                  error:
+                    'Offline playback settings need a database update. Run scripts/apply-embed-offline-playback.sql in the Supabase SQL Editor, then try again.',
+                  code: 'schema_migration_required',
+                },
+                { status: 503, headers: CORS }
+              );
+            }
+            throw error;
+          }
           return Response.json({ embed: updated }, { headers: CORS });
         }
 
@@ -1059,9 +1288,19 @@ const handler = {
           return Response.json({ error: 'code is required' }, { status: 400, headers: CORS });
         }
 
+        const rate = await checkRateLimit(env, request, 'embed-config', { limit: 45, windowSec: 60 });
+        if (!rate.ok) {
+          return rateLimitedResponse(CORS);
+        }
+
         const referer = request.headers.get('referer') || request.headers.get('origin') || '';
+        const origin = request.headers.get('origin') || '';
         const viewHost = url.searchParams.get('host')?.trim().toLowerCase() || '';
-        const result = await resolveEmbedConfig(env, code, referer, viewHost);
+        const secFetchSite = request.headers.get('sec-fetch-site') || '';
+        const result = await resolveEmbedConfig(env, code, referer, viewHost, {
+          origin,
+          secFetchSite,
+        });
         if (result.error) {
           return Response.json({ error: result.error }, { status: result.status, headers: CORS });
         }
@@ -1081,6 +1320,11 @@ const handler = {
       }
 
       try {
+        const rate = await checkRateLimit(env, request, 'embed-view', { limit: 30, windowSec: 60 });
+        if (!rate.ok) {
+          return rateLimitedResponse(CORS);
+        }
+
         const body = await request.json().catch(() => ({}));
         if (body.tracking_code) {
           await recordEmbedView(env, body.tracking_code);
@@ -1089,6 +1333,302 @@ const handler = {
       } catch (error) {
         Sentry.captureException(error);
         return Response.json({ error: 'embed_view_failed' }, { status: 500, headers: CORS });
+      }
+    }
+
+    if (url.pathname === '/api/sermons/usage') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: CORS });
+      }
+      if (request.method !== 'GET') {
+        return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
+      }
+
+      try {
+        const { user, reason } = await verifySupabaseUser(request, env);
+        if (!user) {
+          return unauthorizedResponse(reason);
+        }
+
+        try {
+          await assertPlatformAccess(env, user.id);
+        } catch (error) {
+          if (error instanceof SubscriptionAccessError) {
+            return subscriptionRequiredResponse();
+          }
+          throw error;
+        }
+
+        const payload = await getSermonRetentionUsage(env, user.id);
+        return Response.json(payload, { headers: CORS });
+      } catch (error) {
+        Sentry.captureException(error);
+        return Response.json(
+          { error: error.message || 'sermon_usage_failed' },
+          { status: 500, headers: CORS }
+        );
+      }
+    }
+
+    if (url.pathname === '/api/sermons') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: CORS });
+      }
+
+      try {
+        const { user, reason } = await verifySupabaseUser(request, env);
+        if (!user) {
+          return unauthorizedResponse(reason);
+        }
+
+        try {
+          await assertPlatformAccess(env, user.id);
+        } catch (error) {
+          if (error instanceof SubscriptionAccessError) {
+            return subscriptionRequiredResponse();
+          }
+          throw error;
+        }
+
+        if (request.method === 'GET') {
+          const payload = await listUserSermonRecordings(env, user.id);
+          return Response.json(payload, { headers: CORS });
+        }
+
+        if (request.method === 'DELETE') {
+          const recordingId = url.searchParams.get('id');
+          if (!recordingId) {
+            return Response.json({ error: 'id is required' }, { status: 400, headers: CORS });
+          }
+          const result = await deleteSermonRecording(env, user.id, recordingId);
+          return Response.json(result, { headers: CORS });
+        }
+
+        return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
+      } catch (error) {
+        Sentry.captureException(error);
+        return Response.json(
+          { error: error.message || 'sermons_failed' },
+          { status: 500, headers: CORS }
+        );
+      }
+    }
+
+    if (url.pathname === '/api/sermons/download') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: CORS });
+      }
+      if (request.method !== 'GET') {
+        return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
+      }
+
+      try {
+        const { user, reason } = await verifySupabaseUser(request, env);
+        if (!user) {
+          return unauthorizedResponse(reason);
+        }
+
+        try {
+          await assertPlatformAccess(env, user.id);
+        } catch (error) {
+          if (error instanceof SubscriptionAccessError) {
+            return subscriptionRequiredResponse();
+          }
+          throw error;
+        }
+
+        const recordingId = url.searchParams.get('id');
+        if (!recordingId) {
+          return Response.json({ error: 'id is required' }, { status: 400, headers: CORS });
+        }
+
+        const result = await prepareSermonDownload(env, user.id, recordingId);
+        const deliver = url.searchParams.get('deliver') === '1';
+
+        if (deliver) {
+          if (result.status !== 'ready' || !result.url) {
+            return Response.json(
+              {
+                status: result.status,
+                percentComplete: result.percentComplete ?? null,
+                error: 'Download is still preparing',
+              },
+              { status: result.status === 'inprogress' ? 202 : 409, headers: CORS }
+            );
+          }
+
+          const cfResponse = await fetch(result.url);
+          if (!cfResponse.ok) {
+            return Response.json(
+              { error: 'Could not retrieve MP4 from storage' },
+              { status: 502, headers: CORS }
+            );
+          }
+
+          const filename = `${String(result.title || 'sermon')
+            .replace(/[^a-zA-Z0-9-_ ]/g, '')
+            .trim()
+            .replace(/\s+/g, '_')
+            .slice(0, 80) || 'sermon'}.mp4`;
+
+          const headers = new Headers(CORS);
+          headers.set(
+            'Content-Type',
+            cfResponse.headers.get('Content-Type') || 'application/octet-stream'
+          );
+          headers.set('Content-Disposition', `attachment; filename="${filename}"`);
+          const contentLength = cfResponse.headers.get('Content-Length');
+          if (contentLength) headers.set('Content-Length', contentLength);
+
+          return new Response(cfResponse.body, { status: 200, headers });
+        }
+
+        return Response.json(result, { headers: CORS });
+      } catch (error) {
+        Sentry.captureException(error);
+        return Response.json(
+          { error: error.message || 'sermon_download_failed' },
+          { status: 500, headers: CORS }
+        );
+      }
+    }
+
+    if (url.pathname === '/api/platform/launch') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: CORS });
+      }
+      if (request.method !== 'GET') {
+        return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
+      }
+
+      try {
+        const config = await getPublicLaunchConfig(env);
+        return Response.json(config, { headers: CORS });
+      } catch (error) {
+        Sentry.captureException(error);
+        return Response.json(
+          { error: error.message || 'launch_config_failed' },
+          { status: 500, headers: CORS }
+        );
+      }
+    }
+
+    if (url.pathname === '/api/admin/platform-settings') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: CORS });
+      }
+
+      try {
+        const { user, reason } = await verifyAdminUser(request, env, verifySupabaseUser);
+        if (!user) {
+          if (reason === 'forbidden' || reason === 'mfa_required' || reason === 'access_required' || reason === 'missing_access_jwt' || reason === 'invalid_access_jwt') {
+            return adminDeniedResponse(reason);
+          }
+          return unauthorizedResponse(reason);
+        }
+
+        if (request.method === 'GET') {
+          const config = await getAdminPlatformSettings(env);
+          return Response.json(config, { headers: CORS });
+        }
+
+        if (request.method === 'PATCH') {
+          const body = await request.json().catch(() => ({}));
+          const config = await patchAdminPlatformSettings(env, body);
+          return Response.json(config, { headers: CORS });
+        }
+
+        return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
+      } catch (error) {
+        Sentry.captureException(error);
+        const message = String(error?.message || error || '');
+        if (message.includes('platform_settings') || message.includes('schema cache')) {
+          return Response.json(
+            {
+              error: 'Platform settings storage is unavailable. Contact support or redeploy the Worker.',
+              code: 'platform_settings_unavailable',
+            },
+            { status: 503, headers: CORS }
+          );
+        }
+        return Response.json(
+          { error: error.message || 'platform_settings_failed' },
+          { status: 500, headers: CORS }
+        );
+      }
+    }
+
+    if (url.pathname === '/api/service-schedule') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: CORS });
+      }
+
+      try {
+        const { user, reason } = await verifySupabaseUser(request, env);
+        if (!user) {
+          return unauthorizedResponse(reason);
+        }
+
+        try {
+          await assertPlatformAccess(env, user.id);
+        } catch (error) {
+          if (error instanceof SubscriptionAccessError) {
+            return subscriptionRequiredResponse();
+          }
+          throw error;
+        }
+
+        if (request.method === 'GET') {
+          const payload = await getUserServiceSchedule(env, user.id);
+          return Response.json(payload, { headers: CORS });
+        }
+
+        if (request.method === 'PUT') {
+          const body = await request.json().catch(() => ({}));
+          const payload = await saveUserServiceSchedule(env, user.id, body);
+          return Response.json(payload, { headers: CORS });
+        }
+
+        return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
+      } catch (error) {
+        Sentry.captureException(error);
+        return Response.json(
+          { error: error.message || 'service_schedule_failed' },
+          { status: 500, headers: CORS }
+        );
+      }
+    }
+
+    if (url.pathname === '/api/stream-alerts') {
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: CORS });
+      }
+
+      try {
+        const { user, reason } = await verifySupabaseUser(request, env);
+        if (!user) {
+          return unauthorizedResponse(reason);
+        }
+
+        if (request.method === 'GET') {
+          const limit = Number(url.searchParams.get('limit') || 20);
+          const payload = await listUserStreamAlerts(env, user.id, { limit });
+          return Response.json(payload, { headers: CORS });
+        }
+
+        if (request.method === 'POST') {
+          const body = await request.json().catch(() => ({}));
+          const result = await markStreamAlertsRead(env, user.id, body.alertIds);
+          return Response.json(result, { headers: CORS });
+        }
+
+        return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
+      } catch (error) {
+        Sentry.captureException(error);
+        return Response.json(
+          { error: error.message || 'stream_alerts_failed' },
+          { status: 500, headers: CORS }
+        );
       }
     }
 
@@ -1143,6 +1683,24 @@ const handler = {
     }
 
     return response;
+  },
+
+  async scheduled(event, env, ctx) {
+    const cron = event.cron || '';
+    if (cron === '0 * * * *') {
+      ctx.waitUntil(
+        runSermonLibraryCron(env).catch((error) => {
+          Sentry.captureException(error);
+        })
+      );
+      return;
+    }
+
+    ctx.waitUntil(
+      runStreamMonitorCron(env).catch((error) => {
+        Sentry.captureException(error);
+      })
+    );
   },
 };
 

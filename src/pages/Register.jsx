@@ -17,8 +17,19 @@ import {
   buildTermsAcceptanceMetadata,
   stageTermsAcceptanceForOAuth,
 } from "@/lib/terms-acceptance";
+import { APP_NAME } from "@/lib/brand";
+import usePageMeta from "@/hooks/usePageMeta";
+import TurnstileWidget from "@/components/auth/TurnstileWidget";
+import { verifyTurnstileToken } from "@/lib/turnstile-api";
+
+const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim() || "";
 
 export default function Register() {
+  usePageMeta({
+    title: `Start free trial — ${APP_NAME}`,
+    description: `Create your ${APP_NAME} account. Church live streaming on your website with a 10-day free trial — no credit card required.`,
+    path: "/register",
+  });
   const { isAuthenticated, isLoadingAuth, authChecked } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -28,6 +39,18 @@ export default function Register() {
   const [showVerify, setShowVerify] = useState(false);
   const [otpCode, setOtpCode] = useState("");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState("");
+
+  const turnstileRequired = Boolean(TURNSTILE_SITE_KEY);
+  const turnstileReady = !turnstileRequired || Boolean(turnstileToken);
+
+  const ensureTurnstile = async () => {
+    if (!turnstileRequired) return;
+    if (!turnstileToken) {
+      throw new Error("Please complete the security check below.");
+    }
+    await verifyTurnstileToken(turnstileToken);
+  };
 
   if (!isLoadingAuth && authChecked && isAuthenticated) {
     return <Navigate to="/dashboard" replace />;
@@ -46,6 +69,8 @@ export default function Register() {
     }
     setLoading(true);
     try {
+      await ensureTurnstile();
+      stageTermsAcceptanceForOAuth();
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
@@ -119,6 +144,7 @@ export default function Register() {
     }
     setLoading(true);
     try {
+      await ensureTurnstile();
       stageTermsAcceptanceForOAuth();
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
@@ -247,11 +273,22 @@ export default function Register() {
         </label>
       </div>
 
+      {turnstileRequired ? (
+        <div className="mb-6 flex justify-center">
+          <TurnstileWidget
+            siteKey={TURNSTILE_SITE_KEY}
+            onVerify={setTurnstileToken}
+            onExpire={() => setTurnstileToken("")}
+            onError={() => setTurnstileToken("")}
+          />
+        </div>
+      ) : null}
+
       <Button
         variant="outline"
         className="w-full h-12 text-sm font-medium mb-6"
         onClick={handleGoogle}
-        disabled={loading || !acceptedTerms}
+        disabled={loading || !acceptedTerms || !turnstileReady}
       >
         {loading ? (
           <Loader2 className="w-5 h-5 mr-2 animate-spin" />
@@ -326,7 +363,11 @@ export default function Register() {
             />
           </div>
         </div>
-        <Button type="submit" className="w-full h-12 font-medium" disabled={loading || !acceptedTerms}>
+        <Button
+          type="submit"
+          className="w-full h-12 font-medium"
+          disabled={loading || !acceptedTerms || !turnstileReady}
+        >
           {loading ? (
             <>
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />

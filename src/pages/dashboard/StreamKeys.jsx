@@ -159,7 +159,14 @@ export default function StreamKeys() {
 
   useEffect(() => {
     if (!user?.id) return;
-    load().catch(() => setLoading(false));
+
+    const refresh = () => {
+      load().catch(() => setLoading(false));
+    };
+
+    refresh();
+    const interval = window.setInterval(refresh, 10000);
+    return () => window.clearInterval(interval);
   }, [user?.id]);
 
   const atLimit = keyCount >= keyLimit;
@@ -263,7 +270,7 @@ export default function StreamKeys() {
           ) : null}
           Using <strong className="text-foreground">{keyCount}</strong> of{' '}
           <strong className="text-foreground">{keyLimit}</strong> stream key
-          {keyLimit === 1 ? '' : 's'}.
+          {keyLimit === 1 ? '' : 's'}. Live status refreshes every 10 seconds.
         </p>
       </div>
 

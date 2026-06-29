@@ -1,13 +1,25 @@
 import { supabase } from '@/lib/supabase';
+import { authJsonHeaders } from '@/lib/api-auth';
 import {
   ENTERPRISE_TIER_NAME,
   hasPendingEnterpriseOffer,
 } from '@/lib/enterprise';
 
 export async function initUserSubscription() {
-  const { data, error } = await supabase.rpc('init_user_subscription');
-  if (error) throw error;
-  return data;
+  const response = await fetch('/api/subscription/init', {
+    method: 'POST',
+    headers: await authJsonHeaders(),
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const error = new Error(payload.error || 'Failed to initialize subscription');
+    if (payload.code) error.code = payload.code;
+    if (payload.trialCheck) error.trialCheck = payload.trialCheck;
+    throw error;
+  }
+
+  return payload.subscription;
 }
 
 export async function fetchActiveTiers() {
@@ -39,6 +51,14 @@ export async function fetchUserEmbeds(userId) {
 
   if (error) throw error;
   return data ?? [];
+}
+
+export function isTrialNetworkBlocked(subscription) {
+  return Boolean(
+    subscription?.trial_abuse_flagged &&
+      !subscription?.is_paid &&
+      String(subscription?.admin_notes || '').startsWith('trial_blocked:')
+  );
 }
 
 export function computeTrialDaysLeft(subscription) {
@@ -279,7 +299,6 @@ export function canCancelSubscription(subscription, user) {
 }
 
 export function needsStripeSync(user, subscription, plan = null) {
-  if (isPlatformAdmin(user, subscription)) return false;
   if (isManualBilling(subscription)) return false;
   if (!subscription) return true;
 
@@ -288,6 +307,7 @@ export function needsStripeSync(user, subscription, plan = null) {
     subscription.payment_status === 'subscribed';
 
   if (!isStripePaid) return true;
+  if (isPlatformAdmin(user, subscription)) return false;
   if (subscription.tier_name && subscription.subscription_tier_id) return false;
   if (plan?.id) return false;
   if (inferTierNameFromPayment(subscription.last_payment_amount)) return false;
@@ -302,6 +322,7 @@ export function getSubscriptionAccess(subscription, user) {
     subscription?.payment_status === 'subscribed';
   const isExpired =
     subscription?.payment_status === 'unpaid_trial_expired' ||
+    isTrialNetworkBlocked(subscription) ||
     (!isPaid && subscription?.trial_active === false);
   const hasAccess =
     isPaid ||

@@ -8,7 +8,7 @@ const SIZE_CLASS = {
 
 function positionClass(position, embed) {
   const bottom = embed
-    ? 'bottom-[max(0.75rem,env(safe-area-inset-bottom,0px))]'
+    ? 'bottom-[max(3.25rem,env(safe-area-inset-bottom,0px))]'
     : 'bottom-3 sm:bottom-14';
 
   const map = {

@@ -1,10 +1,10 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Tv, Zap, Play, Code2, Radio, Crown, ArrowRight, CheckCircle } from 'lucide-react';
+import { Zap, Play, Code2, Radio, Crown, ArrowRight, CheckCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import VideoPlayer from '@/components/player/VideoPlayer';
 import { useAuth } from '@/lib/AuthContext';
-import { APP_NAME } from '@/lib/brand';
+import AppLogo from '@/components/brand/AppLogo';
 
 const DEMO_SOURCE = {
   type: 'youtube',
@@ -41,12 +41,7 @@ export default function Home() {
     <div className="min-h-screen bg-background">
       <header className="border-b border-border/30 bg-card/50 backdrop-blur-xl sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center">
-              <Tv className="w-4 h-4 text-white" />
-            </div>
-            <span className="font-bold text-foreground font-heading">{APP_NAME}</span>
-          </div>
+          <AppLogo variant="full" size="2xl" asLink to="/" />
           <div className="flex items-center gap-3">
             <Link
               to="/pricing"

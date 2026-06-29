@@ -43,6 +43,35 @@ export default function VideoControls({
     if (!visible) setVolumeOpen(false);
   }, [visible]);
 
+  const renderEmbedVolumeControl = (buttonClassName, iconClassName = 'w-5 h-5') => (
+    <div ref={volumeClusterRef} className="relative flex items-center">
+      <AnimatePresence>
+        {volumeOpen && (
+          <EmbedVolumePopover
+            volume={volume}
+            isMuted={isMuted}
+            onVolumeChange={onVolumeChange}
+            onClose={() => setVolumeOpen(false)}
+            compact={compact}
+          />
+        )}
+      </AnimatePresence>
+      <button
+        type="button"
+        onClick={() => setVolumeOpen((open) => !open)}
+        className={buttonClassName}
+        aria-label="Adjust volume"
+        aria-expanded={volumeOpen}
+      >
+        {isMuted || volume === 0 ? (
+          <VolumeX className={iconClassName} />
+        ) : (
+          <Volume2 className={iconClassName} />
+        )}
+      </button>
+    </div>
+  );
+
   const formatTime = (seconds) => {
     if (!seconds || isNaN(seconds)) return '0:00';
     const mins = Math.floor(seconds / 60);
@@ -105,7 +134,7 @@ export default function VideoControls({
         initial={pinned ? { opacity: 1, y: 0 } : { opacity: 0, y: 12 }}
         animate={pinned ? { opacity: 1, y: 0 } : { opacity: visible ? 1 : 0, y: visible ? 0 : 12 }}
         transition={{ duration: pinned ? 0 : 0.25 }}
-        className="absolute bottom-0 left-0 right-0 z-50 bg-gradient-to-t from-black/95 via-black/70 to-transparent px-3 pb-3 pt-10 pointer-events-auto touch-manipulation safe-area-pb"
+        className="absolute bottom-0 left-0 right-0 z-50 overflow-visible bg-gradient-to-t from-black/90 via-black/50 to-transparent px-3 pb-3 pt-10 pointer-events-auto touch-manipulation safe-area-pb"
         style={{ pointerEvents: pinned || visible ? 'auto' : 'none' }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -118,14 +147,23 @@ export default function VideoControls({
             >
               {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
             </button>
-            <button
-              type="button"
-              onClick={onMuteToggle}
-              className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-white/10 text-white/80"
-              aria-label={isMuted ? 'Unmute' : 'Mute'}
-            >
-              {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-            </button>
+            {embed ? (
+              renderEmbedVolumeControl(
+                `flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-white transition-colors touch-manipulation ${
+                  volumeOpen ? 'bg-white/20 ring-1 ring-white/25' : 'bg-white/10 text-white/80'
+                }`,
+                'w-4 h-4'
+              )
+            ) : (
+              <button
+                type="button"
+                onClick={onMuteToggle}
+                className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-white/10 text-white/80"
+                aria-label={isMuted ? 'Unmute' : 'Mute'}
+              >
+                {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+              </button>
+            )}
             {live && (
               <span className="truncate text-xs font-semibold uppercase tracking-wide text-red-400">
                 Live
@@ -216,46 +254,28 @@ export default function VideoControls({
             </button>
           )}
 
-          <div
-            ref={volumeClusterRef}
-            className={`relative flex items-center ml-1 ${embed ? 'gap-2' : 'gap-1.5'}`}
-          >
-            <AnimatePresence>
-              {embed && volumeOpen && (
-                <EmbedVolumePopover
-                  volume={volume}
-                  isMuted={isMuted}
-                  onVolumeChange={onVolumeChange}
-                  onClose={() => setVolumeOpen(false)}
-                />
+          {embed ? (
+            <div className="ml-1">
+              {renderEmbedVolumeControl(
+                `flex h-11 w-11 items-center justify-center rounded-full text-white transition-colors touch-manipulation ${
+                  volumeOpen ? 'bg-white/20 ring-1 ring-white/25' : 'bg-white/15 hover:bg-white/25'
+                }`
               )}
-            </AnimatePresence>
-            <button
-              type="button"
-              onClick={() => {
-                if (embed) {
-                  setVolumeOpen((open) => !open);
-                  return;
-                }
-                onMuteToggle();
-              }}
-              className={
-                embed
-                  ? `flex h-11 w-11 items-center justify-center rounded-full text-white transition-colors touch-manipulation ${
-                      volumeOpen ? 'bg-primary/30 ring-1 ring-primary/50' : 'bg-white/15 hover:bg-white/25'
-                    }`
-                  : 'w-8 h-8 flex items-center justify-center text-white/70 hover:text-white transition-colors touch-manipulation'
-              }
-              aria-label={embed ? 'Adjust volume' : isMuted || volume === 0 ? 'Unmute' : 'Mute'}
-              aria-expanded={embed ? volumeOpen : undefined}
-            >
-              {isMuted || volume === 0 ? (
-                <VolumeX className={embed ? 'w-5 h-5' : 'w-4 h-4'} />
-              ) : (
-                <Volume2 className={embed ? 'w-5 h-5' : 'w-4 h-4'} />
-              )}
-            </button>
-            {!embed && (
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 ml-1">
+              <button
+                type="button"
+                onClick={onMuteToggle}
+                className="w-8 h-8 flex items-center justify-center text-white/70 hover:text-white transition-colors touch-manipulation"
+                aria-label={isMuted || volume === 0 ? 'Unmute' : 'Mute'}
+              >
+                {isMuted || volume === 0 ? (
+                  <VolumeX className="w-4 h-4" />
+                ) : (
+                  <Volume2 className="w-4 h-4" />
+                )}
+              </button>
               <input
                 type="range"
                 min="0"
@@ -266,8 +286,8 @@ export default function VideoControls({
                 className="w-16 sm:w-20 cursor-pointer accent-primary"
                 aria-label="Volume"
               />
-            )}
-          </div>
+            </div>
+          )}
 
           {!live && (
             <span className="text-xs text-white/60 font-mono ml-2">

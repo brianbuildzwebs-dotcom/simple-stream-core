@@ -1,5 +1,10 @@
 import { isManualBillingSubscription } from './enterprise-offers.mjs';
 import { normalizeStripeSecretKey } from './stripe-secrets.mjs';
+import {
+  clearStaleStripeBillingIds,
+  findActiveStripeSubscriptionForCustomer,
+  resolveStripeCustomerId,
+} from './stripe-customer.mjs';
 import { supabaseSelect, supabaseUpdate, upsertUserSubscription } from './supabase-admin.mjs';
 
 function normalizeStripeId(value) {
@@ -20,12 +25,23 @@ function parseStripeSignature(header) {
   if (!header) return parsed;
 
   for (const part of header.split(',')) {
-    const [key, value] = part.split('=');
+    const trimmed = part.trim();
+    const separator = trimmed.indexOf('=');
+    if (separator === -1) continue;
+    const key = trimmed.slice(0, separator).trim();
+    const value = trimmed.slice(separator + 1).trim();
     if (key === 't') parsed.timestamp = value;
     if (key === 'v1' && value) parsed.signatures.push(value);
   }
 
   return parsed;
+}
+
+/** Wrangler pastes often include a trailing newline — trim before HMAC. */
+export function normalizeStripeWebhookSecret(secret) {
+  return String(secret || '')
+    .trim()
+    .replace(/^['"]|['"]$/g, '');
 }
 
 function bytesToHex(bytes) {
@@ -41,20 +57,24 @@ function timingSafeEqual(a, b) {
   return diff === 0;
 }
 
+/** Stripe default tolerance is 300s; allow longer for dashboard resends/retries. */
+const WEBHOOK_TOLERANCE_SECONDS = 600;
+
 export async function verifyStripeWebhookSignature(payload, signatureHeader, secret) {
-  if (!secret || !signatureHeader || !payload) return false;
+  const normalizedSecret = normalizeStripeWebhookSecret(secret);
+  if (!normalizedSecret || !signatureHeader || !payload) return false;
 
   const { timestamp, signatures } = parseStripeSignature(signatureHeader);
   if (!timestamp || signatures.length === 0) return false;
 
   const age = Math.floor(Date.now() / 1000) - Number(timestamp);
-  if (!Number.isFinite(age) || age > 300) return false;
+  if (!Number.isFinite(age) || age < -300 || age > WEBHOOK_TOLERANCE_SECONDS) return false;
 
   const signedPayload = `${timestamp}.${payload}`;
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey(
     'raw',
-    encoder.encode(secret),
+    encoder.encode(normalizedSecret),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign']
@@ -137,27 +157,56 @@ async function resolveTierFromStripe(env, stripeSubscription, hints = {}) {
   return null;
 }
 
-async function findStripeCustomerId(stripeKey, user, existingCustomerId = null) {
-  if (existingCustomerId) return existingCustomerId;
-  if (!user.email) return null;
-
-  const customers = await stripeGet(
-    stripeKey,
-    `/customers?email=${encodeURIComponent(user.email)}&limit=1`
-  );
-  return customers?.data?.[0]?.id ?? null;
+async function searchStripeResources(stripeKey, path, query) {
+  if (!query) return [];
+  try {
+    const result = await stripeGet(
+      stripeKey,
+      `${path}?query=${encodeURIComponent(query)}&limit=10`
+    );
+    return result?.data ?? [];
+  } catch {
+    return [];
+  }
 }
 
-async function findActiveStripeSubscription(stripeKey, customerId) {
-  if (!customerId) return null;
+async function listStripeCustomersByEmail(stripeKey, email) {
+  if (!email) return [];
 
-  const subscriptions = await stripeGet(
-    stripeKey,
-    `/subscriptions?customer=${encodeURIComponent(customerId)}&status=active&limit=10`
-  );
-  return (
-    subscriptions?.data?.find((item) => ['active', 'trialing'].includes(item.status)) ?? null
-  );
+  const normalizedEmail = String(email).trim().toLowerCase();
+  const seen = new Set();
+  const customers = [];
+
+  const appendCustomers = (items) => {
+    for (const customer of items ?? []) {
+      if (!customer?.id || seen.has(customer.id)) continue;
+      seen.add(customer.id);
+      customers.push(customer);
+    }
+  };
+
+  try {
+    const listed = await stripeGet(
+      stripeKey,
+      `/customers?email=${encodeURIComponent(normalizedEmail)}&limit=100`
+    );
+    appendCustomers(listed?.data);
+  } catch {
+    // Fall through to search API.
+  }
+
+  try {
+    const searched = await searchStripeResources(
+      stripeKey,
+      '/customers/search',
+      `email:'${normalizedEmail}'`
+    );
+    appendCustomers(searched);
+  } catch {
+    // Ignore search failures.
+  }
+
+  return customers;
 }
 
 async function activatePaidSubscription(env, {
@@ -202,23 +251,51 @@ async function activatePaidSubscription(env, {
   return saved;
 }
 
-async function markSubscriptionCanceled(env, stripeSubscriptionId) {
-  if (!stripeSubscriptionId) return;
+const CANCELED_SUBSCRIPTION_PATCH = {
+  is_paid: false,
+  payment_status: 'canceled',
+  trial_active: false,
+};
+
+async function findUserSubscriptionByStripeId(env, stripeSubscriptionId) {
+  if (!stripeSubscriptionId) return null;
 
   const rows = await supabaseSelect(
     env,
     'user_subscriptions',
-    `stripe_subscription_id=eq.${encodeURIComponent(stripeSubscriptionId)}&select=user_id,billing_managed_by,payment_method`
+    `stripe_subscription_id=eq.${encodeURIComponent(stripeSubscriptionId)}&select=user_id,payment_method`
   );
 
-  const existing = rows?.[0];
+  return rows?.[0] ?? null;
+}
+
+/** Cancel in place — never INSERT on webhook delete (avoids unique/FK 500s). */
+async function cancelSubscriptionForUser(env, userId) {
+  if (!userId || !isUuid(userId)) return false;
+
+  const updated = await supabaseUpdate(
+    env,
+    'user_subscriptions',
+    `user_id=eq.${userId}`,
+    CANCELED_SUBSCRIPTION_PATCH
+  );
+
+  return Boolean(updated);
+}
+
+async function resolveWebhookUserId(env, subscription) {
+  const fromMeta = subscription?.metadata?.user_id;
+  if (fromMeta && isUuid(fromMeta)) return fromMeta;
+
+  const existing = await findUserSubscriptionByStripeId(env, subscription?.id);
+  return existing?.user_id ?? null;
+}
+
+async function markSubscriptionCanceled(env, stripeSubscriptionId) {
+  const existing = await findUserSubscriptionByStripeId(env, stripeSubscriptionId);
   if (!existing?.user_id || isManualBillingSubscription(existing)) return;
 
-  await upsertUserSubscription(env, existing.user_id, {
-    is_paid: false,
-    payment_status: 'canceled',
-    trial_active: false,
-  });
+  await cancelSubscriptionForUser(env, existing.user_id);
 }
 
 export async function activateFromCheckoutSession(session, env) {
@@ -363,7 +440,11 @@ export async function tryUpgradeStripeSubscription(env, user, targetTier) {
     return { upgraded: false, reason: 'manual_billing' };
   }
 
-  const customerId = await findStripeCustomerId(stripeKey, user, existing?.stripe_customer_id);
+  const { customerId } = await resolveStripeCustomerId(
+    stripeKey,
+    user,
+    existing?.stripe_customer_id
+  );
   if (!customerId) {
     return { upgraded: false, reason: 'no_customer' };
   }
@@ -450,7 +531,44 @@ async function listCheckoutSessions(stripeKey, { customerId, startingAfter } = {
   return stripeGet(stripeKey, `/checkout/sessions?${params.toString()}`);
 }
 
+async function findActiveSubscriptionByUserId(stripeKey, userId) {
+  if (!userId) return null;
+
+  const queries = [
+    `metadata['user_id']:'${userId}'`,
+    `metadata["user_id"]:"${userId}"`,
+  ];
+
+  for (const query of queries) {
+    const subs = await searchStripeResources(stripeKey, '/subscriptions/search', query);
+    const match = subs.find((item) => ['active', 'trialing'].includes(item.status));
+    if (match) return match;
+  }
+
+  return null;
+}
+
+async function findCompletedCheckoutSessionByUserId(stripeKey, userId) {
+  if (!userId) return null;
+
+  const queries = [
+    `metadata['user_id']:'${userId}'`,
+    `metadata["user_id"]:"${userId}"`,
+  ];
+
+  for (const query of queries) {
+    const sessions = await searchStripeResources(stripeKey, '/checkout/sessions/search', query);
+    const match = sessions.find((item) => isPaidCheckoutSession(item, userId));
+    if (match) return match;
+  }
+
+  return null;
+}
+
 async function findCompletedCheckoutSession(stripeKey, userId, customerId = null) {
+  const searched = await findCompletedCheckoutSessionByUserId(stripeKey, userId);
+  if (searched) return searched;
+
   const scopes = customerId ? [customerId, null] : [null];
 
   for (const scopedCustomerId of scopes) {
@@ -496,23 +614,43 @@ export async function syncUserSubscriptionFromStripe(user, env) {
     };
   }
 
-  const customerId = await findStripeCustomerId(
+  let stripeSubscription = null;
+  const storedSubscriptionId = normalizeStripeId(existing?.stripe_subscription_id);
+  if (storedSubscriptionId) {
+    const storedSub = await fetchStripeSubscription(storedSubscriptionId, env);
+    if (storedSub && ['active', 'trialing'].includes(storedSub.status)) {
+      stripeSubscription = storedSub;
+    }
+  }
+
+  const { customerId, stale } = await resolveStripeCustomerId(
     stripeKey,
     user,
-    existing?.stripe_customer_id
+    existing?.stripe_customer_id || normalizeStripeId(stripeSubscription?.customer)
   );
 
-  const stripeSubscription = await findActiveStripeSubscription(stripeKey, customerId);
+  if (stale.customerId) {
+    await clearStaleStripeBillingIds(env, user.id, existing, stale);
+  }
+
+  if (!stripeSubscription) {
+    stripeSubscription = await findActiveStripeSubscriptionForCustomer(stripeKey, customerId);
+  }
+  if (!stripeSubscription) {
+    stripeSubscription = await findActiveSubscriptionByUserId(stripeKey, user.id);
+  }
   if (stripeSubscription) {
     const tier = await resolveTierFromStripe(env, stripeSubscription, {
       tierId: stripeSubscription.metadata?.tier_id || existing?.subscription_tier_id,
       tierName: stripeSubscription.metadata?.tier_name || existing?.tier_name,
     });
+    const resolvedCustomerId =
+      customerId || normalizeStripeId(stripeSubscription.customer) || existing?.stripe_customer_id;
     const saved = await activatePaidSubscription(env, {
       userId: user.id,
       tierId: tier?.id || stripeSubscription.metadata?.tier_id || existing?.subscription_tier_id,
       tierName: tier?.name || stripeSubscription.metadata?.tier_name || existing?.tier_name,
-      stripeCustomerId: customerId,
+      stripeCustomerId: resolvedCustomerId,
       stripeSubscriptionId: stripeSubscription.id,
       amount: tier?.monthly_price ?? null,
       renewalDate: renewalDateFromSubscription(stripeSubscription),
@@ -541,11 +679,18 @@ export async function syncUserSubscriptionFromStripe(user, env) {
     return { synced: true, source: 'checkout_session', subscription: saved };
   }
 
-  return { synced: false, reason: customerId ? 'no_active_subscription' : 'no_customer' };
+  const stripeMode = stripeKey.startsWith('sk_live_') ? 'live' : 'test';
+  return {
+    synced: false,
+    reason: customerId ? 'no_active_subscription' : 'no_customer',
+    stripe_mode: stripeMode,
+    email: user.email || null,
+    customer_id: customerId || null,
+  };
 }
 
 async function handleSubscriptionUpdated(subscription, env) {
-  const userId = subscription.metadata?.user_id;
+  const userId = await resolveWebhookUserId(env, subscription);
   if (userId) {
     const rows = await supabaseSelect(
       env,
@@ -564,6 +709,7 @@ async function handleSubscriptionUpdated(subscription, env) {
   const renewalDate = renewalDateFromSubscription(subscription);
 
   if (['active', 'trialing'].includes(status)) {
+    if (!userId) return;
     await activatePaidSubscription(env, {
       userId,
       tierId,
@@ -578,14 +724,14 @@ async function handleSubscriptionUpdated(subscription, env) {
 
   if (['canceled', 'unpaid', 'incomplete_expired'].includes(status)) {
     if (userId) {
-      await upsertUserSubscription(env, userId, {
-        is_paid: false,
-        payment_status: 'canceled',
-        trial_active: false,
-        stripe_subscription_id: subscription.id,
-        subscription_cancel_at: null,
-        subscription_renewal_date: null,
-      });
+      const rows = await supabaseSelect(
+        env,
+        'user_subscriptions',
+        `user_id=eq.${userId}&select=payment_method`
+      );
+      if (!isManualBillingSubscription(rows?.[0])) {
+        await cancelSubscriptionForUser(env, userId);
+      }
       return;
     }
 
@@ -594,26 +740,21 @@ async function handleSubscriptionUpdated(subscription, env) {
 }
 
 async function handleSubscriptionDeleted(subscription, env) {
-  const userId = subscription.metadata?.user_id;
+  const userId = await resolveWebhookUserId(env, subscription);
+
   if (userId) {
     const rows = await supabaseSelect(
       env,
       'user_subscriptions',
-      `user_id=eq.${userId}&select=billing_managed_by,payment_method`
+      `user_id=eq.${userId}&select=payment_method`
     );
     if (isManualBillingSubscription(rows?.[0])) {
       return;
     }
 
-    await upsertUserSubscription(env, userId, {
-      is_paid: false,
-      payment_status: 'canceled',
-      trial_active: false,
-      stripe_subscription_id: subscription.id,
-      subscription_cancel_at: null,
-      subscription_renewal_date: null,
-    });
-    return;
+    if (await cancelSubscriptionForUser(env, userId)) {
+      return;
+    }
   }
 
   await markSubscriptionCanceled(env, subscription.id);

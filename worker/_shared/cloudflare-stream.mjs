@@ -29,19 +29,26 @@ export function buildRecordingHlsPlaybackUrl(customerCode, videoUid) {
   return `https://customer-${customerCode}.cloudflarestream.com/${videoUid}/manifest/video.m3u8`;
 }
 
+function recordingTimestamp(video) {
+  return Date.parse(video?.created || video?.uploaded || 0) || 0;
+}
+
+export function listReadyRecordings(videos) {
+  if (!Array.isArray(videos)) return [];
+
+  return videos
+    .filter((video) => video?.status?.state === 'ready' && video?.uid)
+    .sort((a, b) => recordingTimestamp(b) - recordingTimestamp(a));
+}
+
 export function pickLatestReadyRecording(videos) {
-  if (!Array.isArray(videos)) return null;
+  return listReadyRecordings(videos)[0] ?? null;
+}
 
-  const ready = videos.filter((video) => video?.status?.state === 'ready' && video?.uid);
-  if (!ready.length) return null;
-
-  ready.sort((a, b) => {
-    const aTime = Date.parse(a.created || a.uploaded || 0) || 0;
-    const bTime = Date.parse(b.created || b.uploaded || 0) || 0;
-    return bTime - aTime;
-  });
-
-  return ready[0];
+export function recordingDurationSeconds(video) {
+  const raw = Number(video?.duration ?? video?.meta?.duration ?? 0);
+  if (!Number.isFinite(raw) || raw <= 0) return null;
+  return Math.round(raw);
 }
 
 async function cloudflareStreamFetch(env, path, init = {}) {
@@ -62,27 +69,110 @@ async function cloudflareStreamFetch(env, path, init = {}) {
   return payload.result;
 }
 
+function isLiveInProgressVideo(video) {
+  return String(video?.status?.state || '').toLowerCase() === 'live-inprogress';
+}
+
+/** Uses Cloudflare's public lifecycle endpoint, then falls back to live-inprogress videos. */
 export async function fetchCloudflareLiveInputStatus(env, inputId) {
   if (!inputId) return { connected: false };
 
-  const result = await cloudflareStreamFetch(env, `live_inputs/${inputId}`);
-  if (!result) return { connected: false };
+  const customerCode = env.CLOUDFLARE_STREAM_CUSTOMER_CODE;
+  if (customerCode) {
+    try {
+      const response = await fetch(
+        `https://customer-${customerCode}.cloudflarestream.com/${inputId}/lifecycle`
+      );
+      if (response.ok) {
+        const payload = await response.json().catch(() => null);
+        if (payload?.live === true) {
+          return { connected: true, videoUid: payload.videoUID || null };
+        }
+        if (payload?.live === false) {
+          return { connected: false, videoUid: null };
+        }
+      }
+    } catch {
+      // Fall through to API-based detection.
+    }
+  }
 
-  const status = String(result.status || '').toLowerCase();
-  return { connected: status === 'connected' };
+  const videos = await cloudflareStreamFetch(env, `live_inputs/${inputId}/videos`);
+  if (Array.isArray(videos)) {
+    const active = videos.find(isLiveInProgressVideo);
+    if (active) {
+      return { connected: true, videoUid: active.uid || null };
+    }
+  }
+
+  return { connected: false, videoUid: null };
+}
+
+export async function fetchLiveInputRecordings(env, inputId) {
+  if (!inputId) return [];
+
+  const videos = await cloudflareStreamFetch(env, `live_inputs/${inputId}/videos`);
+  const customerCode = env.CLOUDFLARE_STREAM_CUSTOMER_CODE;
+
+  return listReadyRecordings(videos).map((video) => ({
+    videoUid: video.uid,
+    hlsUrl: buildRecordingHlsPlaybackUrl(customerCode, video.uid),
+    recordedAt: video.created || video.uploaded || null,
+    durationSeconds: recordingDurationSeconds(video),
+    metaName: video?.meta?.name || null,
+  }));
 }
 
 export async function fetchLatestCloudflareRecording(env, inputId) {
-  if (!inputId) return null;
-
-  const videos = await cloudflareStreamFetch(env, `live_inputs/${inputId}/videos`);
-  const latest = pickLatestReadyRecording(videos);
-  if (!latest?.uid) return null;
+  const recordings = await fetchLiveInputRecordings(env, inputId);
+  const latest = recordings[0];
+  if (!latest?.videoUid) return null;
 
   return {
-    videoUid: latest.uid,
-    hlsUrl: buildRecordingHlsPlaybackUrl(env.CLOUDFLARE_STREAM_CUSTOMER_CODE, latest.uid),
-    created: latest.created || latest.uploaded || null,
+    videoUid: latest.videoUid,
+    hlsUrl: latest.hlsUrl,
+    created: latest.recordedAt,
+  };
+}
+
+export async function deleteCloudflareVideo(env, videoUid) {
+  if (!videoUid) return false;
+  const accountId = env.CLOUDFLARE_ACCOUNT_ID;
+  const token = env.CLOUDFLARE_API_TOKEN;
+  if (!accountId || !token) return false;
+
+  const response = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/${videoUid}`,
+    {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+
+  const payload = await response.json().catch(() => ({}));
+  return response.ok && payload.success;
+}
+
+export async function getOrCreateMp4Download(env, videoUid) {
+  if (!videoUid) return { status: 'unavailable', url: null };
+
+  let downloads = await cloudflareStreamFetch(env, `${videoUid}/downloads`);
+  let entry = downloads?.default;
+
+  if (!entry) {
+    downloads = await cloudflareStreamFetch(env, `${videoUid}/downloads`, { method: 'POST' });
+    entry = downloads?.default;
+  }
+
+  if (!entry) {
+    return { status: 'unavailable', url: null };
+  }
+
+  const status = entry.status === 'ready' ? 'ready' : 'inprogress';
+  return {
+    status,
+    url: entry.url || null,
+    percentComplete: entry.percentComplete ?? null,
   };
 }
 

@@ -16,7 +16,7 @@ export default function MfaGate({ children }) {
       const level = await getMfaAssuranceLevel();
       setStatus(needsMfaChallenge(level) ? 'challenge' : 'ready');
     } catch {
-      setStatus('ready');
+      setStatus('challenge');
     }
   }, []);
 

@@ -54,18 +54,18 @@ if ($process.ExitCode -ne 0) {
 Write-Host ""
 Write-Host "Checking Worker..." -ForegroundColor Yellow
 Start-Sleep -Seconds 2
-$status = Invoke-RestMethod -Uri "https://simple-stream-core.brianbuildzwebs.workers.dev/api/auth/status"
+$status = Invoke-RestMethod -Uri "https://simplestreamz.io/api/auth/status"
 $status | ConvertTo-Json
 
-if ($status.stripe_key_format_valid) {
+if ($status.ok -and $status.billing) {
   Write-Host ""
-  Write-Host "Success. Try Subscribe on /pricing." -ForegroundColor Green
+  Write-Host "Success. Stripe secret + webhook secret are active on the Worker." -ForegroundColor Green
+  Write-Host "Try Subscribe on https://simplestreamz.io/pricing" -ForegroundColor Green
 } else {
   Write-Host ""
-  Write-Host "Upload ran but Worker still has wrong value: $($status.stripe_key_prefix)" -ForegroundColor Red
-  Write-Host "Run manually from this folder:" -ForegroundColor Yellow
-  Write-Host "  npx wrangler secret put STRIPE_SECRET_KEY" -ForegroundColor Yellow
-  Write-Host "Then paste your sk_test_... key when prompted." -ForegroundColor Yellow
+  Write-Host "Upload ran but billing is not healthy yet. Re-check:" -ForegroundColor Red
+  Write-Host "  https://simplestreamz.io/api/auth/status" -ForegroundColor Yellow
+  Write-Host "Expect: `"ok`": true and `"billing`": true" -ForegroundColor Yellow
   exit 1
 }
 

@@ -11,7 +11,11 @@ async function adminFetch(path, options = {}) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload.error || 'Admin request failed');
+    const error = new Error(payload.error || 'Admin request failed');
+    if (payload.code) {
+      error.code = payload.code;
+    }
+    throw error;
   }
   return payload;
 }
@@ -53,5 +57,16 @@ export function cancelEnterpriseOffer(userId) {
       user_id: userId,
       action: 'cancel',
     }),
+  });
+}
+
+export function fetchAdminPlatformSettings() {
+  return adminFetch('/api/admin/platform-settings');
+}
+
+export function updateAdminPlatformSettings(patch) {
+  return adminFetch('/api/admin/platform-settings', {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
   });
 }

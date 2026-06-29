@@ -1,53 +1,74 @@
-import React, { useState } from "react";
-import { Link } from "react-router-dom";
-import { supabase } from "@/lib/supabase";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { LogIn, Mail, Lock, Loader2 } from "lucide-react";
-import AuthLayout from "@/components/AuthLayout";
-import GoogleIcon from "@/components/GoogleIcon";
-import { authCallbackUrl } from "@/lib/auth-redirect";
-import { completeSignIn } from "@/lib/complete-sign-in";
+import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { supabase } from '@/lib/supabase';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { LogIn, Mail, Lock, Loader2 } from 'lucide-react';
+import AuthLayout from '@/components/AuthLayout';
+import GoogleIcon from '@/components/GoogleIcon';
+import MfaChallenge from '@/components/auth/MfaChallenge';
+import { authCallbackUrl } from '@/lib/auth-redirect';
+import { completeSignIn } from '@/lib/complete-sign-in';
+import { getMfaAssuranceLevel, needsMfaChallenge } from '@/lib/mfa';
+import { APP_NAME } from '@/lib/brand';
+import usePageMeta from '@/hooks/usePageMeta';
 
 export default function Login() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  usePageMeta({
+    title: `Log in — ${APP_NAME}`,
+    description: `Sign in to your ${APP_NAME} dashboard to manage church live streams, embeds, and chat moderation.`,
+    path: '/login',
+  });
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [mfaStep, setMfaStep] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError("");
+    setError('');
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
+      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+      if (signInError) throw signInError;
+
+      const level = await getMfaAssuranceLevel();
+      if (needsMfaChallenge(level)) {
+        setMfaStep(true);
+        return;
+      }
+
       await completeSignIn();
     } catch (err) {
-      setError(err.message || "Invalid email or password");
+      setError(err.message || 'Invalid email or password');
     } finally {
       setLoading(false);
     }
   };
 
   const handleGoogle = async () => {
-    setError("");
+    setError('');
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
         options: {
           redirectTo: authCallbackUrl(),
-          queryParams: { prompt: "select_account" },
+          queryParams: { prompt: 'select_account' },
         },
       });
-      if (error) throw error;
+      if (oauthError) throw oauthError;
     } catch (err) {
-      setError(err.message || "Google sign-in failed");
+      setError(err.message || 'Google sign-in failed');
       setLoading(false);
     }
   };
+
+  if (mfaStep) {
+    return <MfaChallenge onVerified={() => completeSignIn()} />;
+  }
 
   return (
     <AuthLayout
@@ -56,7 +77,7 @@ export default function Login() {
       subtitle="Log in to your account"
       footer={
         <>
-          Don't have an account?{" "}
+          Don&apos;t have an account?{' '}
           <Link to="/register" className="text-primary font-medium hover:underline">
             Create one
           </Link>
@@ -64,7 +85,7 @@ export default function Login() {
             <Link to="/terms" className="hover:text-foreground hover:underline">
               Terms of Use
             </Link>
-            {" · "}
+            {' · '}
             <Link to="/privacy" className="hover:text-foreground hover:underline">
               Privacy Policy
             </Link>
@@ -105,7 +126,10 @@ export default function Login() {
         <div className="space-y-2">
           <Label htmlFor="email">Email</Label>
           <div className="relative">
-            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+            <Mail
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"
+              aria-hidden="true"
+            />
             <Input
               id="email"
               type="email"
@@ -127,7 +151,10 @@ export default function Login() {
             </Link>
           </div>
           <div className="relative">
-            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+            <Lock
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"
+              aria-hidden="true"
+            />
             <Input
               id="password"
               type="password"
@@ -147,7 +174,7 @@ export default function Login() {
               Logging in...
             </>
           ) : (
-            "Log in"
+            'Log in'
           )}
         </Button>
       </form>

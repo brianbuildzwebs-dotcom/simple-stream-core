@@ -3,7 +3,13 @@ import { X } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { EMBED_VOLUME_PRESETS } from '@/lib/embed-volume';
 
-export default function EmbedVolumePopover({ volume, isMuted, onVolumeChange, onClose }) {
+export default function EmbedVolumePopover({
+  volume,
+  isMuted,
+  onVolumeChange,
+  onClose,
+  compact = false,
+}) {
   const sliderValue = isMuted ? 0 : volume;
 
   return (
@@ -12,7 +18,9 @@ export default function EmbedVolumePopover({ volume, isMuted, onVolumeChange, on
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 6, scale: 0.98 }}
       transition={{ duration: 0.16 }}
-      className="absolute bottom-full left-0 z-50 mb-2 flex w-[10.5rem] flex-col gap-3 rounded-2xl border border-white/15 bg-black/92 px-3 pb-3 pt-2 shadow-xl backdrop-blur-md"
+      className={`embed-volume-popover absolute bottom-full left-0 z-[60] mb-2 flex flex-col gap-3 rounded-2xl border border-white/10 bg-black/70 px-3 pb-3 pt-2 shadow-xl backdrop-blur-lg ${
+        compact ? 'w-[11.5rem]' : 'w-[10.5rem]'
+      }`}
       onClick={(e) => e.stopPropagation()}
       onTouchStart={(e) => e.stopPropagation()}
     >
@@ -38,7 +46,7 @@ export default function EmbedVolumePopover({ volume, isMuted, onVolumeChange, on
           step="0.01"
           value={sliderValue}
           onChange={(e) => onVolumeChange(parseFloat(e.target.value))}
-          className="h-3 w-28 -rotate-90 origin-center cursor-pointer accent-primary"
+          className="embed-volume-slider h-3 w-28 -rotate-90 origin-center cursor-pointer accent-primary touch-manipulation"
           aria-label="Volume"
         />
       </div>
@@ -54,9 +62,11 @@ export default function EmbedVolumePopover({ volume, isMuted, onVolumeChange, on
               key={preset.label}
               type="button"
               onClick={() => onVolumeChange(preset.value)}
-              className={`rounded-lg px-1.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide transition-colors touch-manipulation ${
+              className={`rounded-lg px-1.5 font-semibold uppercase tracking-wide transition-colors touch-manipulation ${
+                compact ? 'py-2 text-[10px]' : 'py-1.5 text-[10px]'
+              } ${
                 active
-                  ? 'bg-primary text-primary-foreground'
+                  ? 'bg-primary/85 text-primary-foreground'
                   : 'bg-white/10 text-white/80 hover:bg-white/20'
               }`}
             >

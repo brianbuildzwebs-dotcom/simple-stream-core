@@ -6,7 +6,7 @@ echo Get it from Stripe: Developers -^> API keys -^> Secret key -^> Reveal
 echo.
 npx wrangler secret put STRIPE_SECRET_KEY
 echo.
-echo Verify at: https://simple-stream-core.brianbuildzwebs.workers.dev/api/auth/status
+echo Verify at: https://simplestreamz.io/api/auth/status
 echo stripe_key_format_valid should be true
 echo.
 pause

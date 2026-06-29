@@ -1,5 +1,6 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
+import { ensureLegalAcceptanceRecorded } from '@/lib/terms-acceptance';
 
 const AuthContext = createContext(null);
 
@@ -45,6 +46,7 @@ export const AuthProvider = ({ children }) => {
       setProfile(profileData);
       setUser(mapUser(session.user, profileData));
       setIsAuthenticated(true);
+      void ensureLegalAcceptanceRecorded(session.user).catch(() => {});
     } else {
       setProfile(null);
       setUser(null);

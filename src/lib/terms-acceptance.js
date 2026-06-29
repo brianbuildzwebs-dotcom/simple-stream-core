@@ -19,30 +19,64 @@ export function stageTermsAcceptanceForOAuth() {
   window.sessionStorage.setItem(PENDING_TERMS_STORAGE_KEY, LEGAL_VERSION);
 }
 
-async function recordLegalAcceptanceAudit({ acceptanceMethod = 'email' } = {}) {
+export function userHasAcceptedTermsInMetadata(user) {
+  const meta = user?.user_metadata ?? {};
+  return Boolean(meta.terms_accepted_at && meta.terms_version);
+}
+
+function resolveTermsMetadata(user) {
+  const meta = user?.user_metadata ?? {};
+  if (meta.terms_accepted_at && meta.terms_version) {
+    return {
+      terms_accepted_at: meta.terms_accepted_at,
+      terms_version: meta.terms_version,
+      privacy_accepted_at: meta.privacy_accepted_at || meta.terms_accepted_at,
+      privacy_version: meta.privacy_version || meta.terms_version,
+    };
+  }
+  return buildTermsAcceptanceMetadata();
+}
+
+function inferAcceptanceMethod(user, { acceptanceMethod, pendingOAuth } = {}) {
+  if (acceptanceMethod) return acceptanceMethod;
+  if (pendingOAuth) return 'google';
+  const provider = user?.app_metadata?.provider;
+  if (provider === 'google') return 'google';
+  return 'email';
+}
+
+async function recordLegalAcceptanceAudit({
+  acceptanceMethod = 'email',
+  termsVersion = LEGAL_VERSION,
+  privacyVersion = LEGAL_VERSION,
+} = {}) {
   try {
     const response = await fetch('/api/legal/accept', {
       method: 'POST',
       headers: await authJsonHeaders(),
       body: JSON.stringify({
-        termsVersion: LEGAL_VERSION,
-        privacyVersion: LEGAL_VERSION,
+        termsVersion,
+        privacyVersion,
         acceptanceMethod,
       }),
+      keepalive: true,
     });
 
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
       console.warn('Legal acceptance audit failed:', payload.error || response.status);
+      return false;
     }
+    return true;
   } catch (error) {
     console.warn('Legal acceptance audit failed:', error.message);
+    return false;
   }
 }
 
-export async function recordTermsAcceptance(userId, { acceptanceMethod = 'email' } = {}) {
+export async function recordTermsAcceptance(userId, { acceptanceMethod = 'email', user } = {}) {
   if (!userId) return;
-  const metadata = buildTermsAcceptanceMetadata();
+  const metadata = resolveTermsMetadata(user);
 
   await supabase.auth.updateUser({ data: metadata });
 
@@ -60,13 +94,38 @@ export async function recordTermsAcceptance(userId, { acceptanceMethod = 'email'
     console.warn('Could not persist terms acceptance on profile:', error.message);
   }
 
-  await recordLegalAcceptanceAudit({ acceptanceMethod });
+  await recordLegalAcceptanceAudit({
+    acceptanceMethod,
+    termsVersion: metadata.terms_version,
+    privacyVersion: metadata.privacy_version,
+  });
 }
 
-export async function finalizePendingTermsAcceptance(user, { acceptanceMethod = 'google' } = {}) {
+function legalAuditSyncedKey(userId) {
+  return `ssz_legal_audit_synced_${userId}`;
+}
+
+export async function ensureLegalAcceptanceRecorded(user, { acceptanceMethod } = {}) {
   if (typeof window === 'undefined' || !user?.id) return;
+
   const pending = window.sessionStorage.getItem(PENDING_TERMS_STORAGE_KEY);
-  if (!pending) return;
-  await recordTermsAcceptance(user.id, { acceptanceMethod });
-  window.sessionStorage.removeItem(PENDING_TERMS_STORAGE_KEY);
+  const hasMetadata = userHasAcceptedTermsInMetadata(user);
+  if (!pending && !hasMetadata) return;
+
+  if (!pending && hasMetadata && window.sessionStorage.getItem(legalAuditSyncedKey(user.id))) {
+    return;
+  }
+
+  const method = inferAcceptanceMethod(user, { acceptanceMethod, pendingOAuth: Boolean(pending) });
+  await recordTermsAcceptance(user.id, { acceptanceMethod: method, user });
+
+  if (pending) {
+    window.sessionStorage.removeItem(PENDING_TERMS_STORAGE_KEY);
+  } else if (hasMetadata) {
+    window.sessionStorage.setItem(legalAuditSyncedKey(user.id), '1');
+  }
+}
+
+export async function finalizePendingTermsAcceptance(user, options = {}) {
+  return ensureLegalAcceptanceRecorded(user, options);
 }

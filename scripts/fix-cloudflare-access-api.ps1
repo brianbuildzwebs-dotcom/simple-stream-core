@@ -6,7 +6,7 @@
 $ErrorActionPreference = "Stop"
 
 $AccountId = "be90b9dfc7dfcf09a335189f4499ef4f"
-$WorkerHost = "simple-stream-core.brianbuildzwebs.workers.dev"
+$WorkerHost = "simplestreamz.io"
 $ExpectedAud = "c0be6912a9528aab4e35bb803271a0619681361d15cb3a3041c629488da324cf"
 
 Write-Host ""

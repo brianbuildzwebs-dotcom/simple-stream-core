@@ -1,4 +1,10 @@
 import { normalizeStripeSecretKey } from './stripe-secrets.mjs';
+import {
+  clearStaleStripeBillingIds,
+  findActiveStripeSubscriptionForCustomer,
+  resolveStripeCustomerId,
+  stripeSubscriptionExists,
+} from './stripe-customer.mjs';
 import { supabaseSelect, upsertUserSubscription } from './supabase-admin.mjs';
 
 function isManualBillingSubscription(subscription) {
@@ -40,48 +46,40 @@ async function getUserSubscription(env, userId) {
   return rows?.[0] ?? null;
 }
 
-async function findStripeCustomerId(stripeKey, user, existingCustomerId = null) {
-  if (existingCustomerId) return existingCustomerId;
-  if (!user.email) return null;
-
-  const customers = await stripeRequest(
-    stripeKey,
-    `/customers?email=${encodeURIComponent(user.email)}&limit=1`
-  );
-  return customers?.data?.[0]?.id ?? null;
-}
-
-async function findActiveStripeSubscription(stripeKey, customerId) {
-  if (!customerId) return null;
-
-  const subscriptions = await stripeRequest(
-    stripeKey,
-    `/subscriptions?customer=${encodeURIComponent(customerId)}&status=active&limit=10`
-  );
-  return (
-    subscriptions?.data?.find((item) => ['active', 'trialing'].includes(item.status)) ?? null
-  );
-}
-
-async function resolveStripeSubscription(stripeKey, user, subscription) {
+async function resolveStripeSubscription(env, stripeKey, user, subscription) {
   const subscriptionId = normalizeStripeId(subscription?.stripe_subscription_id);
+  const stale = { customerId: null, subscriptionId: null };
+
   if (subscriptionId) {
-    try {
-      const stripeSub = await stripeRequest(stripeKey, `/subscriptions/${subscriptionId}`);
-      if (['active', 'trialing', 'past_due'].includes(stripeSub?.status)) {
-        return stripeSub;
+    const exists = await stripeSubscriptionExists(stripeKey, subscriptionId);
+    if (exists) {
+      try {
+        const stripeSub = await stripeRequest(stripeKey, `/subscriptions/${subscriptionId}`);
+        if (['active', 'trialing', 'past_due'].includes(stripeSub?.status)) {
+          return stripeSub;
+        }
+      } catch {
+        // Fall through to customer lookup.
       }
-    } catch {
-      // Fall through to customer lookup.
+    } else {
+      stale.subscriptionId = subscriptionId;
     }
   }
 
-  const customerId = await findStripeCustomerId(
+  const { customerId, stale: customerStale } = await resolveStripeCustomerId(
     stripeKey,
     user,
     subscription?.stripe_customer_id
   );
-  return findActiveStripeSubscription(stripeKey, customerId);
+  if (customerStale.customerId) {
+    stale.customerId = customerStale.customerId;
+  }
+
+  if (stale.customerId || stale.subscriptionId) {
+    await clearStaleStripeBillingIds(env, user.id, subscription, stale);
+  }
+
+  return findActiveStripeSubscriptionForCustomer(stripeKey, customerId);
 }
 
 export async function createBillingPortalSession(user, env, returnUrl) {
@@ -101,13 +99,21 @@ export async function createBillingPortalSession(user, env, returnUrl) {
     throw new Error('Admin accounts cannot manage billing here');
   }
 
-  const customerId = await findStripeCustomerId(
+  const { customerId, stale } = await resolveStripeCustomerId(
     stripeKey,
     user,
-    subscription.stripe_customer_id
+    subscription.stripe_customer_id,
+    { allowInactiveCustomer: true }
   );
+
+  if (stale.customerId || stale.subscriptionId) {
+    await clearStaleStripeBillingIds(env, user.id, subscription, stale);
+  }
+
   if (!customerId) {
-    throw new Error('No Stripe billing profile found for this account');
+    throw new Error(
+      'No Stripe billing account was found for this login. If you subscribed during earlier testing, use Upgrade on Profile to start a new live subscription.'
+    );
   }
 
   const session = await stripeRequest(stripeKey, '/billing_portal/sessions', {
@@ -174,7 +180,7 @@ export async function cancelActiveStripeSubscription(env, user, { immediate = fa
     return { canceled: false, reason: 'no_subscription' };
   }
 
-  const stripeSubscription = await resolveStripeSubscription(stripeKey, user, subscription);
+  const stripeSubscription = await resolveStripeSubscription(env, stripeKey, user, subscription);
   if (!stripeSubscription?.id) {
     return { canceled: false, reason: 'no_stripe_subscription' };
   }

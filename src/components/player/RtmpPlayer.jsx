@@ -1,6 +1,9 @@
 import React, { useEffect, useLayoutEffect, useRef, useState, memo, useCallback } from 'react';
 import Hls from 'hls.js';
+import { motion } from 'framer-motion';
 import { Radio, Loader2, AlertCircle, Play } from 'lucide-react';
+import { buildScheduleHoldingLine } from '@/lib/service-schedule';
+import { fetchLiveLifecycle } from '@/lib/rtmp';
 import LiveBadge from './LiveBadge';
 
 const STATUS = {
@@ -35,10 +38,14 @@ function RtmpPlayer({
   replayHlsUrl = null,
   playbackMode = 'holding',
   replayWhenOffline = false,
+  inputId = null,
+  customerCode = null,
   holdingTitle = null,
   holdingMessage = null,
+  serviceSchedule = null,
   embed = false,
   viewerCount = 0,
+  chromeVisible = true,
   videoFit = 'contain',
   defaultVolume,
   onAudiblePlayback,
@@ -91,6 +98,9 @@ function RtmpPlayer({
   const [awaitingClick, setAwaitingClick] = useState(deferUntilClick);
   const [viewerReady, setViewerReady] = useState(false);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
+  const [scheduleLine, setScheduleLine] = useState(() =>
+    playMode === 'holding' ? buildScheduleHoldingLine(serviceSchedule) : null
+  );
   const connectingTimerRef = useRef(null);
 
   onPlayingChangeRef.current = onPlayingChange;
@@ -204,8 +214,10 @@ function RtmpPlayer({
     (video) => {
       if (!video) return;
 
+      const markPlaying = isReplay ? markReplayPlaying : markLive;
+
       if (!video.paused && video.readyState >= 2) {
-        markLive();
+        markPlaying();
         return;
       }
 
@@ -213,29 +225,35 @@ function RtmpPlayer({
         .play()
         .then(() => {
           if (!video.paused && video.readyState >= 2) {
-            markLive();
+            markPlaying();
             return;
           }
-          if (playbackUnlockedRef.current) {
+          if (playbackUnlockedRef.current && !isReplay) {
             markWaitingForFeed();
+          } else if (playbackUnlockedRef.current && isReplay) {
+            setStatus(STATUS.LOADING);
           }
         })
         .catch(() => {
           if (video.readyState >= 2) {
-            markLive();
+            markPlaying();
             return;
           }
-          if (playbackUnlockedRef.current) {
+          if (playbackUnlockedRef.current && !isReplay) {
             markWaitingForFeed();
             return;
           }
+          if (playbackUnlockedRef.current && isReplay) {
+            setStatus(STATUS.LOADING);
+            return;
+          }
           setStatus(STATUS.WAITING);
-          setErrorMsg('Tap play again to start.');
+          setErrorMsg(isReplay ? 'Tap play again to watch the replay.' : 'Tap play again to start.');
           setAwaitingClick(true);
           playbackUnlockedRef.current = false;
         });
     },
-    [markLive, markWaitingForFeed]
+    [isReplay, markLive, markReplayPlaying, markWaitingForFeed]
   );
 
   const attachHls = useCallback(
@@ -320,7 +338,7 @@ function RtmpPlayer({
             markLive();
             return;
           }
-          if (playbackUnlockedRef.current) {
+          if (playbackUnlockedRef.current && !vod) {
             tryStartPlayback(video);
           }
         });
@@ -545,6 +563,11 @@ function RtmpPlayer({
       return;
     }
 
+    if (isReplay) {
+      tryStartPlayback(video);
+      return;
+    }
+
     reloadFeed(video);
     tryStartPlayback(video);
   }, [
@@ -555,6 +578,44 @@ function RtmpPlayer({
     scheduleConnectingTimeout,
     tryStartPlayback,
     unlockPlayback,
+  ]);
+
+  useEffect(() => {
+    if (!replayWhenOffline || !hlsUrl || !inputId || !customerCode) return undefined;
+
+    let cancelled = false;
+
+    const checkForLiveBroadcast = async () => {
+      if (cancelled || isStreamLiveRef.current) return;
+      const lifecycle = await fetchLiveLifecycle(customerCode, inputId);
+      if (cancelled || !lifecycle?.live) return;
+
+      setPlayMode('live');
+      updateStreamLive(true);
+      const video = internalVideoRef.current;
+      if (video && playbackUnlockedRef.current) {
+        reloadFeed(video);
+        tryStartPlayback(video);
+      }
+    };
+
+    const interval = window.setInterval(() => {
+      checkForLiveBroadcast().catch(() => {});
+    }, FEED_POLL_MS);
+    checkForLiveBroadcast().catch(() => {});
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [
+    replayWhenOffline,
+    hlsUrl,
+    inputId,
+    customerCode,
+    reloadFeed,
+    tryStartPlayback,
+    updateStreamLive,
   ]);
 
   useEffect(() => {
@@ -577,6 +638,18 @@ function RtmpPlayer({
       window.clearInterval(interval);
     };
   }, [viewerReady, hlsUrl, isReplay, markWaitingForFeed, reloadFeed, tryStartPlayback]);
+
+  useEffect(() => {
+    if (playMode !== 'holding' || !serviceSchedule?.slots?.length) {
+      setScheduleLine(null);
+      return undefined;
+    }
+
+    const refresh = () => setScheduleLine(buildScheduleHoldingLine(serviceSchedule));
+    refresh();
+    const interval = window.setInterval(refresh, 1000);
+    return () => window.clearInterval(interval);
+  }, [playMode, serviceSchedule]);
 
   useEffect(() => {
     onUserStartRequiredChange?.(deferUntilClick && awaitingClick);
@@ -621,11 +694,11 @@ function RtmpPlayer({
         preload="auto"
       />
       {showTapToPlay && (
-        <div className="rtmp-tap-overlay absolute inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+        <div className="rtmp-tap-overlay absolute inset-0 z-50 flex items-center justify-center overflow-y-auto overscroll-contain bg-black/70 px-4 safe-area-pt safe-area-pb">
           <button
             type="button"
             onClick={handleStartClick}
-            className="flex w-full max-w-[17.5rem] flex-col items-center px-4 py-4 text-center text-white touch-manipulation"
+            className="tap-overlay-panel flex w-full max-w-[17.5rem] flex-col items-center px-4 py-3 my-auto text-center text-white touch-manipulation"
             aria-label="Play live stream"
           >
             <span className="embed-tap-play-btn mb-3 flex items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform active:scale-95">
@@ -633,18 +706,42 @@ function RtmpPlayer({
             </span>
             <span className="embed-tap-play-title font-medium">{isReplay ? 'Tap to watch replay' : tapTitle}</span>
             <span className="embed-tap-play-subtitle mt-2 text-white/65">
-              {isReplay ? 'Watch the most recent service recording.' : tapBody}
+              {isReplay
+                ? 'Watch the most recent service recording.'
+                : scheduleLine?.headline || tapBody}
             </span>
+            {!isReplay && scheduleLine?.countdown && (
+              <span className="tap-overlay-countdown mt-3 text-lg font-semibold tabular-nums text-primary">
+                Starting in {scheduleLine.countdown}
+              </span>
+            )}
           </button>
         </div>
       )}
       {showWaitingOverlay && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/80 px-6">
-          <div className="max-w-sm text-center text-white">
-            <Radio className="mx-auto mb-3 h-9 w-9 text-primary" />
-            <p className="text-base font-semibold">{waitingTitle}</p>
-            <p className="mt-2 text-sm leading-relaxed text-white/70">{waitingBody}</p>
-            <p className="mt-3 text-xs text-white/45">Checking for live feed every few seconds…</p>
+        <div className="rtmp-waiting-overlay absolute inset-0 z-20 flex items-center justify-center overflow-y-auto overscroll-contain bg-black/80 px-4 safe-area-pt safe-area-pb">
+          <div className="waiting-overlay-panel my-auto w-full max-w-sm py-2 text-center text-white">
+            <Radio className="waiting-overlay-icon mx-auto mb-3 h-9 w-9 text-primary" />
+            <p className="waiting-overlay-title text-base font-semibold">{waitingTitle}</p>
+            <p className="waiting-overlay-body mt-2 text-sm leading-relaxed text-white/70">{waitingBody}</p>
+            {scheduleLine && (
+              <div className="waiting-overlay-schedule mt-4 rounded-xl border border-white/15 bg-white/5 px-4 py-3">
+                <p className="waiting-overlay-schedule-headline text-sm font-medium text-white">
+                  {scheduleLine.headline}
+                </p>
+                {scheduleLine.countdown && (
+                  <p className="waiting-overlay-countdown mt-1 text-xl font-semibold tabular-nums text-primary">
+                    {scheduleLine.countdown}
+                  </p>
+                )}
+                <p className="waiting-overlay-schedule-detail mt-2 text-xs leading-snug text-white/55">
+                  {scheduleLine.detail}
+                </p>
+              </div>
+            )}
+            <p className="waiting-overlay-footer mt-3 text-xs text-white/45">
+              Checking for live feed every few seconds…
+            </p>
           </div>
         </div>
       )}
@@ -675,9 +772,14 @@ function RtmpPlayer({
         <LiveBadge viewerCount={viewerCount} />
       )}
       {status === STATUS.LIVE && isReplay && isVideoPlaying && (
-        <div className="absolute left-3 top-3 z-30 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">
+        <motion.div
+          initial={false}
+          animate={{ opacity: chromeVisible ? 1 : 0, y: chromeVisible ? 0 : -8 }}
+          transition={{ duration: 0.2 }}
+          className="absolute left-3 top-3 z-30 rounded-full bg-black/70 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white pointer-events-none safe-area-pt"
+        >
           {REPLAY_BADGE_LABEL}
-        </div>
+        </motion.div>
       )}
     </div>
   );

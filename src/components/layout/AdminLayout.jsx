@@ -1,5 +1,7 @@
 import React from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
+import usePageMeta from '@/hooks/usePageMeta';
+import { APP_NAME } from '@/lib/brand';
 import {
   LayoutDashboard,
   Users,
@@ -25,6 +27,13 @@ const ADMIN_NAV = [
 
 export default function AdminLayout() {
   const location = useLocation();
+
+  usePageMeta({
+    title: `Admin — ${APP_NAME}`,
+    description: `${APP_NAME} platform administration.`,
+    path: location.pathname,
+    noindex: true,
+  });
 
   const isActive = (path, exact) =>
     exact ? location.pathname === path : location.pathname.startsWith(path);

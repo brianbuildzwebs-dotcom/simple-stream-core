@@ -1,10 +1,19 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import PublicHeader from '@/components/layout/PublicHeader';
 import { APP_NAME } from '@/lib/brand';
+import usePageMeta from '@/hooks/usePageMeta';
 
 export default function LegalDocumentPage({ title, lastUpdated, sections, alternate }) {
+  const location = useLocation();
+
+  usePageMeta({
+    title: `${title} — ${APP_NAME}`,
+    description: `${title} for ${APP_NAME}, church live streaming on your website.`,
+    path: location.pathname,
+  });
+
   return (
     <div className="min-h-screen bg-background">
       <PublicHeader />

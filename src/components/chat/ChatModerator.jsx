@@ -12,6 +12,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from '@/components/ui/use-toast';
 
 function banAppliesToThread(ban, sourceKey) {
   if (!ban.source_key) return true;
@@ -29,6 +30,7 @@ export default function ChatModerator({
   const [editingId, setEditingId] = useState(null);
   const [editContent, setEditContent] = useState('');
   const [clearing, setClearing] = useState(false);
+  const [showDeleted, setShowDeleted] = useState(false);
 
   const isOwnerMode = mode === 'owner' && ownerUserId;
 
@@ -79,13 +81,40 @@ export default function ChatModerator({
     };
   }, [load, mode, ownerUserId, sourceKey]);
 
+  const markDeleted = async (ids) => {
+    const results = await Promise.all(
+      ids.map((id) => supabase.from('messages').update({ is_deleted: true }).eq('id', id))
+    );
+    const failed = results.find((result) => result.error);
+    if (failed?.error) {
+      toast({
+        title: 'Could not delete message',
+        description: failed.error.message,
+        variant: 'destructive',
+      });
+      return false;
+    }
+    return true;
+  };
+
   const handleDelete = async (id) => {
-    await supabase.from('messages').update({ is_deleted: true }).eq('id', id);
-    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, is_deleted: true } : m)));
+    const ok = await markDeleted([id]);
+    if (!ok) return;
+    setMessages((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, is_deleted: true } : m))
+    );
   };
 
   const handleRestore = async (id) => {
-    await supabase.from('messages').update({ is_deleted: false }).eq('id', id);
+    const { error } = await supabase.from('messages').update({ is_deleted: false }).eq('id', id);
+    if (error) {
+      toast({
+        title: 'Could not restore message',
+        description: error.message,
+        variant: 'destructive',
+      });
+      return;
+    }
     setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, is_deleted: false } : m)));
   };
 
@@ -120,14 +149,12 @@ export default function ChatModerator({
     const userMsgs = messages.filter(
       (m) => m.user_name === userName && !m.is_deleted && (!sourceKey || m.source_key === sourceKey)
     );
-    await Promise.all(
-      userMsgs.map((m) => supabase.from('messages').update({ is_deleted: true }).eq('id', m.id))
-    );
+    const ids = userMsgs.map((m) => m.id);
+    const ok = await markDeleted(ids);
+    if (!ok) return;
     setMessages((prev) =>
       prev.map((m) =>
-        m.user_name === userName && (!sourceKey || m.source_key === sourceKey)
-          ? { ...m, is_deleted: true }
-          : m
+        ids.includes(m.id) ? { ...m, is_deleted: true } : m
       )
     );
   };
@@ -137,7 +164,7 @@ export default function ChatModerator({
     const label = embedLabel || 'this player';
     if (
       !window.confirm(
-        `Clear all active chat messages for ${label}? Deleted messages stay in your moderation history.`
+        `Clear all active chat messages for ${label}? They will disappear from live chat and this list.`
       )
     ) {
       return;
@@ -149,9 +176,8 @@ export default function ChatModerator({
         .filter((m) => !m.is_deleted && m.source_key === sourceKey)
         .map((m) => m.id);
 
-      await Promise.all(
-        activeIds.map((id) => supabase.from('messages').update({ is_deleted: true }).eq('id', id))
-      );
+      const ok = await markDeleted(activeIds);
+      if (!ok) return;
       setMessages((prev) =>
         prev.map((m) => (activeIds.includes(m.id) ? { ...m, is_deleted: true } : m))
       );
@@ -170,10 +196,21 @@ export default function ChatModerator({
           <h2 className="text-lg font-semibold">Live Chat</h2>
           <p className="text-xs text-muted-foreground">
             {embedLabel ? `${embedLabel} · ` : ''}
-            {active.length} active · {deleted.length} deleted
+            {active.length} message{active.length === 1 ? '' : 's'}
+            {deleted.length > 0 ? ` · ${deleted.length} deleted` : ''}
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {deleted.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowDeleted((value) => !value)}
+              className="text-xs"
+            >
+              {showDeleted ? 'Hide deleted' : `Show deleted (${deleted.length})`}
+            </Button>
+          )}
           {isOwnerMode && sourceKey && (
             <Button
               variant="outline"
@@ -194,14 +231,14 @@ export default function ChatModerator({
       </div>
 
       <div className="bg-card border border-border/50 rounded-xl overflow-hidden">
-        {active.length === 0 && deleted.length === 0 ? (
+        {active.length === 0 && (!showDeleted || deleted.length === 0) ? (
           <p className="p-8 text-center text-muted-foreground text-sm">
             {sourceKey ? 'No messages for this player yet.' : 'No messages yet.'}
           </p>
         ) : (
           <div className="divide-y divide-border/30 max-h-[600px] overflow-y-auto">
             <AnimatePresence>
-              {[...active, ...deleted].map((msg) => (
+              {[...(showDeleted ? deleted : []), ...active].map((msg) => (
                 <motion.div
                   key={msg.id}
                   initial={{ opacity: 0 }}

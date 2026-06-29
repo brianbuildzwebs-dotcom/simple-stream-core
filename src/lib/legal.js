@@ -1,7 +1,7 @@
 import { APP_NAME, SUPPORT_EMAIL } from '@/lib/brand';
 
-export const LEGAL_VERSION = '2026-06-19';
-export const TERMS_LAST_UPDATED = 'June 19, 2026';
+export const LEGAL_VERSION = '2026-06-23';
+export const TERMS_LAST_UPDATED = 'June 23, 2026';
 export const PRIVACY_LAST_UPDATED = 'June 19, 2026';
 
 export const TERMS_SECTIONS = [
@@ -61,6 +61,8 @@ export const TERMS_SECTIONS = [
       'You must provide accurate registration information and keep your credentials secure.',
       'Free trials and paid plans are described on our Pricing page. Fees are billed through our payment provider unless you are on an Enterprise arrangement.',
       'We may limit trials or accounts to prevent abuse, including duplicate free trials from the same person, household, or organization.',
+      'From time to time we may offer introductory or promotional pricing for new subscriptions. If you subscribe at a promotional monthly rate shown on our Pricing page, that rate remains in effect for your active paid subscription on that plan unless you cancel, change to a different plan in a way that starts a new subscription price, or we give you advance notice of a permitted price change as described in these Terms.',
+      'If you cancel and later re-subscribe, current pricing at the time of re-subscription applies; promotional rates are not guaranteed to return.',
     ],
   },
   {

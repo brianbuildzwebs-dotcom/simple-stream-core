@@ -5,6 +5,7 @@ import {
   fetchLatestCloudflareRecording,
 } from './cloudflare-stream.mjs';
 import { resolveOwnerWatermarkPolicy } from './subscription-access.mjs';
+import { getUserServiceSchedule, serializeScheduleForEmbed } from './service-schedule.mjs';
 import { supabaseSelect, supabaseUpdate } from './supabase-admin.mjs';
 import { parseYoutubeUrl } from './youtube-url.mjs';
 
@@ -15,6 +16,43 @@ function hostFromReferer(referer) {
   } catch {
     return '';
   }
+}
+
+function hostFromOrigin(origin) {
+  if (!origin) return '';
+  try {
+    return new URL(origin).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+function isBrowserEmbedRequest(secFetchSite) {
+  const mode = String(secFetchSite || '').trim().toLowerCase();
+  return mode === 'same-origin' || mode === 'same-site' || mode === 'cross-site';
+}
+
+export function resolveTrustedPlaybackHost(referer, origin, viewHost, secFetchSite = '') {
+  const refererHost = hostFromReferer(referer);
+  const originHost = hostFromOrigin(origin);
+  const claimedHost = String(viewHost || '').trim().toLowerCase();
+
+  if (refererHost && !isPlatformPreviewHost(refererHost)) {
+    return refererHost;
+  }
+
+  if (originHost && isPlatformPreviewHost(originHost)) {
+    if (claimedHost && isBrowserEmbedRequest(secFetchSite)) {
+      return claimedHost;
+    }
+    return refererHost || originHost || '';
+  }
+
+  if (isPlatformPreviewHost(refererHost)) {
+    return refererHost || originHost || '';
+  }
+
+  return '';
 }
 
 function hostMatchesDomainPattern(host, pattern) {
@@ -43,6 +81,8 @@ function isPlatformPreviewHost(host) {
   return (
     normalized === 'localhost' ||
     normalized === '127.0.0.1' ||
+    normalized === 'simplestreamz.io' ||
+    normalized.endsWith('.simplestreamz.io') ||
     normalized.endsWith('.workers.dev') ||
     normalized.endsWith('.pages.dev')
   );
@@ -99,7 +139,13 @@ async function isDomainWatermarkExempt(env, host) {
   return (rows ?? []).some((row) => hostMatchesDomainPattern(host, row.domain));
 }
 
-export async function resolveEmbedConfig(env, trackingCode, referer, viewHost = '') {
+export async function resolveEmbedConfig(
+  env,
+  trackingCode,
+  referer,
+  viewHost = '',
+  { origin = '', secFetchSite = '' } = {}
+) {
   const lookup = await fetchEmbedByTrackingCode(env, trackingCode);
   if (lookup.error) {
     return { error: lookup.error, status: lookup.status || 500 };
@@ -114,7 +160,7 @@ export async function resolveEmbedConfig(env, trackingCode, referer, viewHost = 
     return { error: 'This embed is inactive. Reactivate it in Embed Manager.', status: 404 };
   }
 
-  const playbackHost = (viewHost || hostFromReferer(referer) || '').toLowerCase();
+  const playbackHost = resolveTrustedPlaybackHost(referer, origin, viewHost, secFetchSite);
   const domainCheckReferer = playbackHost ? `https://${playbackHost}/` : referer;
   const platformPreview = isPlatformPreviewHost(playbackHost);
 
@@ -136,7 +182,7 @@ export async function resolveEmbedConfig(env, trackingCode, referer, viewHost = 
     const keys = await supabaseSelect(
       env,
       'stream_keys',
-      `id=eq.${embed.stream_key_id}&select=*`
+      `id=eq.${embed.stream_key_id}&select=id,status,cloudflare_input_id,hls_playback_url,stream_name`
     );
     const key = keys?.[0];
     if (key?.status === 'revoked') {
@@ -148,7 +194,7 @@ export async function resolveEmbedConfig(env, trackingCode, referer, viewHost = 
     const hlsUrl =
       buildHlsPlaybackUrl(env.CLOUDFLARE_STREAM_CUSTOMER_CODE, key?.cloudflare_input_id) ||
       key?.hls_playback_url;
-    if (hlsUrl && key?.key_value) {
+    if (hlsUrl) {
       const replayWhenOffline = embed.replay_when_offline === true;
       let playbackMode = 'holding';
       let replayHlsUrl = null;
@@ -172,7 +218,6 @@ export async function resolveEmbedConfig(env, trackingCode, referer, viewHost = 
       source = {
         type: 'rtmp',
         provider: 'cloudflare',
-        streamKey: key.key_value,
         hlsUrl,
         replayHlsUrl,
         playbackMode,
@@ -213,11 +258,16 @@ export async function resolveEmbedConfig(env, trackingCode, referer, viewHost = 
     return { error: 'Embed source not configured', status: 422 };
   }
 
-  const [watermarkPolicy, isWhitelisted] = await Promise.all([
+  const [watermarkPolicy, isWhitelisted, serviceSchedule] = await Promise.all([
     resolveOwnerWatermarkPolicy(env, embed.user_id),
     isDomainWatermarkExempt(env, playbackHost),
+    getUserServiceSchedule(env, embed.user_id).then(serializeScheduleForEmbed).catch(() => null),
   ]);
   const showWatermark = resolveEmbedWatermarkVisible(embed, watermarkPolicy, isWhitelisted);
+
+  if (source?.type === 'rtmp' && serviceSchedule) {
+    source.serviceSchedule = serviceSchedule;
+  }
 
   return {
     status: 200,

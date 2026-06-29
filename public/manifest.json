@@ -1,10 +1,25 @@
 {
-  "name": "Simple Streams",
-  "short_name": "Streams",
-  "description": "Multi-source video streaming player",
+  "name": "Simple Streamz",
+  "short_name": "Streamz",
+  "description": "Church live streaming on your website — embeddable player, OBS-ready RTMP, and family-safe chat.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#0a0a0f",
   "theme_color": "#3b82f6",
-  "icons": []
+  "lang": "en-US",
+  "icons": [
+    {
+      "src": "/simple-streamz-icon.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/simple-streamz-icon.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
 }

@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { Users, Crown, AlertTriangle, Radio, Code2, DollarSign, FileCheck } from 'lucide-react';
 import { fetchAdminStats } from '@/lib/admin-api';
+import PlatformSettingsPanel from '@/components/admin/PlatformSettingsPanel';
 
 export default function AdminOverview() {
   const [stats, setStats] = useState({
@@ -106,6 +107,8 @@ export default function AdminOverview() {
           );
         })}
       </div>
+
+      <PlatformSettingsPanel />
     </div>
   );
 }

@@ -9,7 +9,8 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "vite build && node scripts/postbuild.mjs",
+    "build": "python scripts/generate-og-image.py && vite build && node scripts/postbuild.mjs",
+    "test": "node --test worker/_shared/*.test.mjs",
     "postbuild": "node scripts/cf-deploy-if-ci.mjs",
     "lint": "eslint . --quiet",
     "lint:fix": "eslint . --fix",

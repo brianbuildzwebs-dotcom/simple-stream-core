@@ -220,9 +220,23 @@ export default function Profile() {
             : 'Your paid plan is now active.',
         });
       } else {
+        const modeHint =
+          result.stripe_mode === 'live'
+            ? 'Worker is using live Stripe keys — confirm Stripe Dashboard is in Live mode (not Test).'
+            : result.stripe_mode === 'test'
+              ? 'Worker is using test Stripe keys — switch Stripe Dashboard to Test mode, or upload sk_live_ to the Worker.'
+              : '';
+        const hint =
+          result.reason === 'no_customer'
+            ? 'Stripe has no customer for this login email. Use the same email you paid with, or check Stripe Dashboard → Customers.'
+            : result.reason === 'manual_billing'
+              ? 'Your plan is billed manually, not through Stripe.'
+              : ['If you just paid, wait a moment and try again.', modeHint, 'Confirm webhook checkout.session.completed returns 200.']
+                  .filter(Boolean)
+                  .join(' ');
         toast({
           title: 'No active Stripe subscription found',
-          description: 'If you just paid, wait a moment and try again.',
+          description: hint,
           variant: 'destructive',
         });
       }
@@ -535,7 +549,7 @@ export default function Profile() {
                 {plan.max_stream_keys ? ` · ${plan.max_stream_keys} stream keys` : ''}
               </p>
             )}
-            {!isPaid && subscription?.trial_active && daysLeft != null && (
+            {!isAdmin && !isPaid && subscription?.trial_active && daysLeft != null && (
               <p className="text-xs text-muted-foreground mt-1">
                 {daysLeft} day{daysLeft !== 1 ? 's' : ''} left in free trial
               </p>

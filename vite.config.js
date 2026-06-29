@@ -65,7 +65,19 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const sentryAuthToken = process.env.SENTRY_AUTH_TOKEN || env.SENTRY_AUTH_TOKEN;
 
+  const apiProxyTarget = (env.VITE_API_PROXY_TARGET || 'https://simplestreamz.io').replace(/\/$/, '');
+
   return {
+    server: {
+      port: Number(env.VITE_DEV_PORT) || 5173,
+      proxy: {
+        '/api': {
+          target: apiProxyTarget,
+          changeOrigin: true,
+          secure: true,
+        },
+      },
+    },
     plugins: [
       react(),
       youtubeLiveApiPlugin(env.YOUTUBE_INNERTUBE_KEY),

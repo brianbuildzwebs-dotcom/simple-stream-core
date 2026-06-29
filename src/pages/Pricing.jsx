@@ -10,9 +10,16 @@ import { useAuth } from '@/lib/AuthContext';
 import { useSubscription } from '@/hooks/useSubscription';
 import { APP_NAME, SUPPORT_EMAIL } from '@/lib/brand';
 import { ENTERPRISE_PLAN, enterpriseMailto } from '@/lib/enterprise';
-import { getChurchPlanPresentation } from '@/lib/church-plans';
+import { getChurchPlanPresentation, INCLUDED_EVERY_PLAN, VALUE_ANCHOR } from '@/lib/church-plans';
+import {
+  formatLaunchPrice,
+  getFutureTierPrice,
+  launchOfferIsActive,
+} from '@/lib/launch-config';
+import { fetchLaunchConfig } from '@/lib/platform-api';
 import { toast } from '@/components/ui/use-toast';
 import PublicHeader from '@/components/layout/PublicHeader';
+import usePageMeta from '@/hooks/usePageMeta';
 
 export default function Pricing() {
   const [tiers, setTiers] = useState([]);
@@ -27,7 +34,22 @@ export default function Pricing() {
   const [checkoutComplete, setCheckoutComplete] = useState(false);
   const [pendingPlanChange, setPendingPlanChange] = useState(null);
   const [streamKeyCount, setStreamKeyCount] = useState(0);
+  const [launchConfig, setLaunchConfig] = useState(null);
   const confirmedSessionRef = useRef('');
+
+  const launchOffer = launchConfig?.launchOffer;
+  const showLaunchOffer = launchOfferIsActive(launchOffer);
+
+  usePageMeta({
+    title: `Church streaming plans & pricing — ${APP_NAME}`,
+    description:
+      'Affordable church live streaming plans. One embed for your website, OBS-ready streaming, moderated chat, and analytics. 10-day free trial.',
+    path: '/pricing',
+  });
+
+  useEffect(() => {
+    fetchLaunchConfig().then(setLaunchConfig).catch(() => setLaunchConfig(null));
+  }, []);
 
   useEffect(() => {
     const checkoutState = searchParams.get('checkout');
@@ -261,6 +283,29 @@ export default function Pricing() {
           </div>
         )}
 
+        {showLaunchOffer && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-8 rounded-2xl border border-amber-500/35 bg-gradient-to-r from-amber-500/10 via-card to-card p-5 text-center"
+          >
+            <p className="text-sm font-semibold text-foreground">
+              {launchOffer?.headline || 'Launch pricing — limited time'}
+            </p>
+            <p className="text-sm text-muted-foreground mt-2 max-w-2xl mx-auto">
+              {launchOffer?.body ||
+                'Subscribe now to lock in today’s rate. Your price stays the same while you remain on the plan.'}
+            </p>
+            {launchOffer?.offerEndsLabel && (
+              <p className="text-xs text-amber-200/90 mt-2 font-medium">{launchOffer.offerEndsLabel}</p>
+            )}
+            <p className="text-[11px] text-muted-foreground mt-3 max-w-xl mx-auto">
+              {launchOffer?.grandfatherNote ||
+                'Grandfathered pricing applies to active paid subscriptions on the same plan.'}
+            </p>
+          </motion.div>
+        )}
+
         {loading ? (
           <div className="flex justify-center py-20">
             <div className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
@@ -275,6 +320,11 @@ export default function Pricing() {
               const church = getChurchPlanPresentation(tier);
               const isCurrent = isCurrentTier(tier);
               const showBadge = church.badge || isCurrent;
+              const futurePrice = getFutureTierPrice(tier.name, launchOffer);
+              const showFuturePrice =
+                showLaunchOffer &&
+                futurePrice != null &&
+                Number(futurePrice) > Number(tier.monthly_price);
 
               return (
               <motion.div
@@ -310,11 +360,28 @@ export default function Pricing() {
                   {church.idealFor && (
                     <p className="text-xs text-primary/90 mt-2">{church.idealFor}</p>
                   )}
-                  <div className="mt-4 flex items-end gap-1">
-                    <span className="text-4xl font-bold text-foreground">
-                      ${Number(tier.monthly_price).toFixed(2).replace(/\.00$/, '')}
-                    </span>
-                    <span className="text-muted-foreground mb-1">/month</span>
+                  <div className="mt-4 space-y-1">
+                    {showFuturePrice && (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <span className="line-through decoration-red-400/80">
+                          {formatLaunchPrice(futurePrice)}
+                        </span>
+                        <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-200">
+                          Launch rate
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex items-end gap-1">
+                      <span className="text-4xl font-bold text-foreground">
+                        ${Number(tier.monthly_price).toFixed(2).replace(/\.00$/, '')}
+                      </span>
+                      <span className="text-muted-foreground mb-1">/month</span>
+                    </div>
+                    {showFuturePrice && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Lock in this price — grandfathered while you stay subscribed.
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="space-y-2.5 mb-6">
@@ -425,14 +492,43 @@ export default function Pricing() {
           </div>
         )}
 
-        <div className="mt-12 text-center text-sm text-muted-foreground max-w-2xl mx-auto space-y-2">
+        <div className="mt-14 grid gap-8 lg:grid-cols-2">
+          <div className="rounded-2xl border border-border/50 bg-card p-6">
+            <h2 className="text-lg font-bold text-foreground font-heading">Included on every plan</h2>
+            <p className="text-sm text-muted-foreground mt-1 mb-4">
+              Full church streaming stack — not à-la-carte add-ons.
+            </p>
+            <div className="space-y-2">
+              {INCLUDED_EVERY_PLAN.map((feature) => (
+                <FeatureRow key={feature} label={feature} />
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-primary/25 bg-primary/5 p-6">
+            <h2 className="text-lg font-bold text-foreground font-heading">{VALUE_ANCHOR.headline}</h2>
+            <p className="text-sm text-muted-foreground mt-2">{VALUE_ANCHOR.body}</p>
+            <div className="mt-5 space-y-3">
+              {VALUE_ANCHOR.comparison.map((row) => (
+                <div
+                  key={row.label}
+                  className="flex items-center justify-between gap-4 rounded-xl border border-border/40 bg-card/80 px-4 py-3"
+                >
+                  <span className="text-sm text-muted-foreground">{row.label}</span>
+                  <span className="text-sm font-semibold text-foreground">{row.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-10 text-center text-sm text-muted-foreground max-w-2xl mx-auto space-y-2">
           <p>
             <strong className="text-foreground">One embed</strong> on your site works for every
             service. Extra stream keys are only for{' '}
             <strong className="text-foreground">two rooms live at the same time</strong> (e.g.
             sanctuary + Sunday School).
           </p>
-          <p>All plans include RTMP streaming, embeddable players, chat, and moderation tools.</p>
           <p>
             Questions?{' '}
             <a href={`mailto:${SUPPORT_EMAIL}`} className="text-primary hover:underline">

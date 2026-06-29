@@ -10,6 +10,7 @@ import {
   formatTotpSecret,
   getUnverifiedTotpFactors,
   getVerifiedTotpFactor,
+  formatMfaError,
   listTotpFactors,
 } from '@/lib/mfa';
 import { toast } from '@/components/ui/use-toast';
@@ -35,7 +36,7 @@ export default function MfaSettings({ emphasizeAdmin = false }) {
     } catch (loadError) {
       toast({
         title: 'Could not load MFA status',
-        description: loadError.message,
+        description: formatMfaError(loadError),
         variant: 'destructive',
       });
     } finally {
@@ -58,7 +59,7 @@ export default function MfaSettings({ emphasizeAdmin = false }) {
         description: 'You can enable authenticator app again.',
       });
     } catch (resetError) {
-      setError(resetError.message || 'Could not remove incomplete MFA setup');
+      setError(formatMfaError(resetError));
     } finally {
       setBusy(false);
     }
@@ -94,7 +95,7 @@ export default function MfaSettings({ emphasizeAdmin = false }) {
       setVerifyCode('');
       setEnrolling(true);
     } catch (enrollError) {
-      setError(enrollError.message || 'Could not start MFA enrollment');
+      setError(formatMfaError(enrollError));
     } finally {
       setBusy(false);
     }
@@ -136,7 +137,7 @@ export default function MfaSettings({ emphasizeAdmin = false }) {
         description: 'You will be asked for a code the next time you sign in.',
       });
     } catch (verifyError) {
-      setError(verifyError.message || 'Invalid verification code');
+      setError(formatMfaError(verifyError));
     } finally {
       setBusy(false);
     }
@@ -188,7 +189,7 @@ export default function MfaSettings({ emphasizeAdmin = false }) {
         <p className="text-xs text-muted-foreground mt-1">
           {verifiedFactor
             ? 'Your account requires a code from your authenticator app when you sign in.'
-            : 'Add an authenticator app for an extra layer of protection on sign-in.'}
+            : 'Add Google Authenticator, Microsoft Authenticator, or Authy. Requires TOTP enabled in Supabase Authentication → Multi-Factor.'}
         </p>
         {emphasizeAdmin && !verifiedFactor && (
           <p className="text-xs text-amber-300/90 mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">

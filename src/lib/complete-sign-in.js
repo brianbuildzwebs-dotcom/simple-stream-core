@@ -24,7 +24,10 @@ export async function completeSignIn({
   const resolvedUserId = userId || session.user.id;
 
   if (recordTerms && resolvedUserId) {
-    void recordTermsAcceptance(resolvedUserId, { acceptanceMethod }).catch(() => {});
+    await recordTermsAcceptance(resolvedUserId, {
+      acceptanceMethod,
+      user: session.user,
+    });
   }
 
   window.location.replace('/dashboard');
