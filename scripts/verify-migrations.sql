@@ -8,7 +8,7 @@ select 'stream_alerts', to_regclass('public.stream_alerts') is not null
 union all
 select 'sermon_recordings', to_regclass('public.sermon_recordings') is not null
 union all
-select 'service_schedule', to_regclass('public.service_schedule') is not null
+select 'service_schedule_slots', to_regclass('public.service_schedule_slots') is not null
 union all
 select 'trial_abuse', to_regclass('public.trial_abuse') is not null
 union all

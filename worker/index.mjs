@@ -64,7 +64,11 @@ import {
   cancelUserSubscription,
   createBillingPortalSession,
 } from './_shared/subscription-billing.mjs';
-import { resolveBillingReturnUrl } from './_shared/stripe-customer.mjs';
+import {
+  clearStaleStripeBillingIds,
+  resolveBillingReturnUrl,
+  resolveStripeCustomerId,
+} from './_shared/stripe-customer.mjs';
 import {
   activateFromCheckoutSession,
   handleStripeWebhookEvent,
@@ -905,15 +909,26 @@ const handler = {
         const existingRows = await supabaseSelect(
           env,
           'user_subscriptions',
-          `user_id=eq.${user.id}&select=stripe_customer_id`
+          `user_id=eq.${user.id}&select=*`
         );
+        const storedSubscription = existingRows?.[0] ?? null;
+        const stripeKey = normalizeStripeSecretKey(env.STRIPE_SECRET_KEY);
+        const { customerId, stale } = await resolveStripeCustomerId(
+          stripeKey,
+          user,
+          storedSubscription?.stripe_customer_id || null,
+          { allowInactiveCustomer: true }
+        );
+        if (stale.customerId || stale.subscriptionId) {
+          await clearStaleStripeBillingIds(env, user.id, storedSubscription, stale);
+        }
         const session = await createStripeCheckoutSession(
           {
             tier,
             user,
             successUrl,
             cancelUrl,
-            customerId: existingRows?.[0]?.stripe_customer_id || null,
+            customerId,
           },
           env
         );

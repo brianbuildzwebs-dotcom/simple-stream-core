@@ -3,6 +3,7 @@ import {
   clearStaleStripeBillingIds,
   findActiveStripeSubscriptionForCustomer,
   resolveStripeCustomerId,
+  stripeCustomerExists,
   stripeSubscriptionExists,
 } from './stripe-customer.mjs';
 import { supabaseSelect, upsertUserSubscription } from './supabase-admin.mjs';
@@ -110,7 +111,7 @@ export async function createBillingPortalSession(user, env, returnUrl) {
     await clearStaleStripeBillingIds(env, user.id, subscription, stale);
   }
 
-  if (!customerId) {
+  if (!customerId || !(await stripeCustomerExists(stripeKey, customerId))) {
     throw new Error(
       'No Stripe billing account was found for this login. If you subscribed during earlier testing, use Upgrade on Profile to start a new live subscription.'
     );

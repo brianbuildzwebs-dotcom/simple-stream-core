@@ -77,29 +77,55 @@ async function ensureAdminFreePass(env, userId, subscription) {
   );
 }
 
+function isDuplicateSubscriptionError(error) {
+  const message = String(error?.message || '');
+  return message.includes('user_subscriptions_user_id_key') || message.includes('duplicate key');
+}
+
+async function loadExistingSubscription(env, userId) {
+  const existingRows =
+    (await supabaseSelect(
+      env,
+      'user_subscriptions',
+      `user_id=eq.${userId}&select=*&limit=1`
+    )) ?? [];
+  const existing = existingRows[0];
+  if (!existing) return null;
+
+  const expired = await persistExpiredTrial(env, existing);
+  const subscription = await ensureAdminFreePass(env, userId, expired);
+  return subscription;
+}
+
+async function insertUserSubscription(env, row) {
+  try {
+    return await supabaseInsert(env, 'user_subscriptions', row);
+  } catch (error) {
+    if (!isDuplicateSubscriptionError(error)) {
+      throw error;
+    }
+    const existing = await loadExistingSubscription(env, row.user_id);
+    if (!existing) {
+      throw error;
+    }
+    return existing;
+  }
+}
+
 export async function initUserSubscriptionForUser(env, { user, request }) {
   if (!user?.id) {
     throw new Error('Not authenticated');
   }
 
-  const existingRows =
-    (await supabaseSelect(
-      env,
-      'user_subscriptions',
-      `user_id=eq.${user.id}&select=*&limit=1`
-    )) ?? [];
-  const existing = existingRows[0];
-
+  const existing = await loadExistingSubscription(env, user.id);
   if (existing) {
-    const expired = await persistExpiredTrial(env, existing);
-    const subscription = await ensureAdminFreePass(env, user.id, expired);
-    return { subscription, created: false, trialCheck: null };
+    return { subscription: existing, created: false, trialCheck: null };
   }
 
   const trialCheck = await assessTrialRegistration(env, { user, request });
 
   if (!trialCheck.allowed) {
-    const subscription = await supabaseInsert(env, 'user_subscriptions', {
+    const subscription = await insertUserSubscription(env, {
       user_id: user.id,
       trial_active: false,
       trial_start_date: null,
@@ -115,7 +141,7 @@ export async function initUserSubscriptionForUser(env, { user, request }) {
   }
 
   const trialEnd = new Date(Date.now() + TRIAL_DAYS * 86400000).toISOString();
-  const subscription = await supabaseInsert(env, 'user_subscriptions', {
+  const subscription = await insertUserSubscription(env, {
     user_id: user.id,
     trial_active: true,
     trial_start_date: new Date().toISOString(),

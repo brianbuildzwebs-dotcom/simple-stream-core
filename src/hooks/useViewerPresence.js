@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { generateUuid } from '@/lib/uuid';
 
 const SESSION_KEY = 'simple-streams-viewer-session';
 let memorySessionId = null;
@@ -8,12 +9,12 @@ function getSessionId() {
   try {
     let id = sessionStorage.getItem(SESSION_KEY);
     if (!id) {
-      id = crypto.randomUUID();
+      id = generateUuid();
       sessionStorage.setItem(SESSION_KEY, id);
     }
     return id;
   } catch {
-    if (!memorySessionId) memorySessionId = crypto.randomUUID();
+    if (!memorySessionId) memorySessionId = generateUuid();
     return memorySessionId;
   }
 }
