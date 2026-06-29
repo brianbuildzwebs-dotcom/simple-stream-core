@@ -5,7 +5,7 @@ export async function sendStreamAlertEmail(env, { to, subject, text, html }) {
     return { sent: false, reason: 'email_not_configured' };
   }
 
-  const fromEmail = env.STREAM_ALERT_FROM_EMAIL?.trim() || 'alerts@simplestreamz.com';
+  const fromEmail = env.STREAM_ALERT_FROM_EMAIL?.trim() || 'alerts@simplestreamz.io';
   const fromName = env.STREAM_ALERT_FROM_NAME?.trim() || APP_NAME;
 
   try {

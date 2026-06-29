@@ -991,7 +991,7 @@ const handler = {
           if (count >= limit) {
             const limitMessage =
               limit >= 10
-                ? 'Stream key limit reached. Contact us at support@simplestreamz.com for Enterprise pricing and custom limits.'
+                ? 'Stream key limit reached. Contact us at support@simplestreamz.io for Enterprise pricing and custom limits.'
                 : `Stream key limit reached (${limit}). Upgrade your plan for more.`;
             return Response.json(
               {
