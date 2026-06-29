@@ -1,4 +1,8 @@
-"""Generate a 1200x630 Open Graph preview image."""
+"""Generate a 1200x630 Open Graph preview image (local dev only).
+
+Run manually when the logo changes: npm run og:image
+og-image.png is committed to public/ — Cloudflare Workers Builds has no Python/Pillow.
+"""
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
