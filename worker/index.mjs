@@ -530,18 +530,22 @@ const handler = {
       if (request.method === 'OPTIONS') {
         return new Response(null, { headers: CORS });
       }
-      if (request.method !== 'GET') {
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
         return Response.json({ error: 'Method not allowed' }, { status: 405, headers: CORS });
       }
       if (url.pathname === '/api/health') {
-        return Response.json(
-          {
-            status: 'ok',
-            service: 'simple-stream-core',
-            ...publicAuthHealth(env),
-          },
-          { headers: CORS }
-        );
+        const body = {
+          status: 'ok',
+          service: 'simple-stream-core',
+          ...publicAuthHealth(env),
+        };
+        if (request.method === 'HEAD') {
+          return new Response(null, {
+            status: 200,
+            headers: { ...CORS, 'Content-Type': 'application/json' },
+          });
+        }
+        return Response.json(body, { headers: CORS });
       }
       const { user, reason } = await verifyAdminUser(request, env, verifySupabaseUser);
       if (user) {
