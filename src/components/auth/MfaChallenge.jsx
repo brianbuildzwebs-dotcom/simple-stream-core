@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Loader2, Shield } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
-import { formatMfaError, listTotpFactors } from '@/lib/mfa';
+import { formatMfaError, listTotpFactors, verifyTotpCode } from '@/lib/mfa';
 
 export default function MfaChallenge({ onVerified }) {
   const [code, setCode] = useState('');
@@ -33,17 +32,8 @@ export default function MfaChallenge({ onVerified }) {
     setError('');
     setLoading(true);
     try {
-      const challenge = await supabase.auth.mfa.challenge({ factorId });
-      if (challenge.error) throw challenge.error;
-
-      const verify = await supabase.auth.mfa.verify({
-        factorId,
-        challengeId: challenge.data.id,
-        code: code.trim(),
-      });
-      if (verify.error) throw verify.error;
-
       setRedirecting(true);
+      await verifyTotpCode({ factorId, code });
       await onVerified?.();
     } catch (verifyError) {
       setRedirecting(false);

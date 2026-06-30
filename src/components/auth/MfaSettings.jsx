@@ -12,6 +12,7 @@ import {
   getVerifiedTotpFactor,
   formatMfaError,
   listTotpFactors,
+  verifyTotpCode,
 } from '@/lib/mfa';
 import { toast } from '@/components/ui/use-toast';
 
@@ -119,15 +120,7 @@ export default function MfaSettings({ emphasizeAdmin = false }) {
     setError('');
     setBusy(true);
     try {
-      const challenge = await supabase.auth.mfa.challenge({ factorId });
-      if (challenge.error) throw challenge.error;
-
-      const verify = await supabase.auth.mfa.verify({
-        factorId,
-        challengeId: challenge.data.id,
-        code: verifyCode.trim(),
-      });
-      if (verify.error) throw verify.error;
+      await verifyTotpCode({ factorId, code: verifyCode });
 
       setEnrolling(false);
       setVerifyCode('');

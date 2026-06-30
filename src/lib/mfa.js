@@ -14,6 +14,10 @@ export function needsMfaChallenge(level) {
 export async function listTotpFactors() {
   const { data, error } = await supabase.auth.mfa.listFactors();
   if (error) throw error;
+  // auth-js only puts verified factors in data.totp; include unverified from data.all.
+  const all = data?.all ?? [];
+  const totpFromAll = all.filter((factor) => factor.factor_type === 'totp');
+  if (totpFromAll.length > 0) return totpFromAll;
   return data?.totp ?? [];
 }
 
@@ -23,6 +27,27 @@ export function getVerifiedTotpFactor(factors) {
 
 export function getUnverifiedTotpFactors(factors) {
   return (factors ?? []).filter((factor) => factor.status !== 'verified');
+}
+
+export async function verifyTotpCode({ factorId, code }) {
+  const trimmed = code.trim();
+  const result = await supabase.auth.mfa.challengeAndVerify({
+    factorId,
+    code: trimmed,
+  });
+  if (result.error) throw result.error;
+
+  const { error: refreshError } = await supabase.auth.refreshSession();
+  if (refreshError) throw refreshError;
+
+  const level = await getMfaAssuranceLevel();
+  if (needsMfaChallenge(level)) {
+    throw new Error(
+      'Verification succeeded but your session is still at single-factor. Sign out and sign in again, then enter a fresh code.'
+    );
+  }
+
+  return result.data;
 }
 
 export async function clearUnverifiedTotpFactors() {
