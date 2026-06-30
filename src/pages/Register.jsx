@@ -282,19 +282,6 @@ export default function Register() {
         </label>
       </div>
 
-      {turnstileRequired ? (
-        <div className="mb-6">
-          <TurnstileWidget
-            siteKey={turnstileSiteKey}
-            onVerify={setTurnstileToken}
-            onExpire={() => setTurnstileToken("")}
-            onError={() => setTurnstileToken("")}
-          />
-        </div>
-      ) : turnstileChecking ? (
-        <p className="mb-6 text-center text-xs text-muted-foreground">Checking security settings…</p>
-      ) : null}
-
       <Button
         variant="outline"
         className="w-full h-12 text-sm font-medium mb-6"
@@ -308,6 +295,19 @@ export default function Register() {
         )}
         Continue with Google
       </Button>
+
+      {turnstileRequired ? (
+        <div className="mb-6 flex justify-center">
+          <TurnstileWidget
+            siteKey={turnstileSiteKey}
+            onVerify={setTurnstileToken}
+            onExpire={() => setTurnstileToken("")}
+            onError={() => setTurnstileToken("")}
+          />
+        </div>
+      ) : turnstileChecking ? (
+        <p className="mb-6 text-center text-xs text-muted-foreground">Checking security settings…</p>
+      ) : null}
 
       <div className="relative mb-6">
         <div className="absolute inset-0 flex items-center">

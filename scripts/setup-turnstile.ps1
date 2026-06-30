@@ -21,7 +21,7 @@ $body = @{
 
 $response = Invoke-RestMethod `
   -Method POST `
-  -Uri "https://api.cloudflare.com/client/v4/accounts/$AccountId/turnstile/widgets" `
+  -Uri "https://api.cloudflare.com/client/v4/accounts/$AccountId/challenges/widgets" `
   -Headers @{ Authorization = "Bearer $env:CLOUDFLARE_API_TOKEN" } `
   -ContentType "application/json" `
   -Body $body
