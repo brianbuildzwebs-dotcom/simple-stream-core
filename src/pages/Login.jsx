@@ -76,7 +76,13 @@ export default function Login() {
   };
 
   if (mfaStep) {
-    return <MfaChallenge onVerified={() => completeSignIn()} />;
+    return (
+      <MfaChallenge
+        onVerified={async () => {
+          await completeSignIn();
+        }}
+      />
+    );
   }
 
   return (

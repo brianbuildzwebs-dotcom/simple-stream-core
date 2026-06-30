@@ -12,6 +12,7 @@ export default function MfaChallenge({ onVerified }) {
   const [loading, setLoading] = useState(false);
   const [factorId, setFactorId] = useState('');
   const [booting, setBooting] = useState(true);
+  const [redirecting, setRedirecting] = useState(false);
 
   useEffect(() => {
     listTotpFactors()
@@ -42,18 +43,23 @@ export default function MfaChallenge({ onVerified }) {
       });
       if (verify.error) throw verify.error;
 
-      onVerified?.();
+      setRedirecting(true);
+      await onVerified?.();
     } catch (verifyError) {
+      setRedirecting(false);
       setError(formatMfaError(verifyError));
     } finally {
       setLoading(false);
     }
   };
 
-  if (booting) {
+  if (booting || redirecting) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-3">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        {redirecting ? (
+          <p className="text-sm text-muted-foreground">Signed in — opening dashboard…</p>
+        ) : null}
       </div>
     );
   }
