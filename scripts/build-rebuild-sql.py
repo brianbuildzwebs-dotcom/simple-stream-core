@@ -76,7 +76,7 @@ def add_drop_triggers(sql: str) -> str:
             name = m.group(1)
             table = None
             for j in range(i, min(i + 6, len(lines))):
-                tm = re.search(r"\bon\s+((?:public\.)?\w+)", lines[j], re.IGNORECASE)
+                tm = re.search(r"\bon\s+((?:\w+\.)?\w+)", lines[j], re.IGNORECASE)
                 if tm:
                     table = tm.group(1)
                     break
@@ -97,12 +97,12 @@ def add_drop_policies(sql: str) -> str:
         if m:
             name = m.group(1)
             table = None
-            tm = re.search(r"\bon\s+((?:public\.)?\w+)", line, re.IGNORECASE)
+            tm = re.search(r"\bon\s+((?:\w+\.)?\w+)", line, re.IGNORECASE)
             if tm:
                 table = tm.group(1)
             else:
                 for j in range(i + 1, min(i + 5, len(lines))):
-                    tm = re.search(r"\bon\s+((?:public\.)?\w+)", lines[j], re.IGNORECASE)
+                    tm = re.search(r"\bon\s+((?:\w+\.)?\w+)", lines[j], re.IGNORECASE)
                     if tm:
                         table = tm.group(1)
                         break
