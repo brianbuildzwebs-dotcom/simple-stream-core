@@ -87,7 +87,7 @@ export default function Home() {
 
       <section className="max-w-7xl mx-auto px-4 sm:px-6 py-16 md:py-24">
         <div className="grid lg:grid-cols-2 gap-12 items-center">
-          <div className="space-y-6">
+          <div className="space-y-6 order-2 lg:order-1">
             <motion.div
               initial={{ opacity: 0, y: -12 }}
               animate={{ opacity: 1, y: 0 }}
@@ -156,10 +156,8 @@ export default function Home() {
           </div>
 
           <motion.div
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="space-y-3"
+            initial={false}
+            className="space-y-3 order-1 lg:order-2"
             id="demo"
           >
             <div className="flex flex-wrap gap-2">
