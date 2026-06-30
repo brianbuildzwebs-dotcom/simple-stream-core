@@ -107,6 +107,11 @@ export default function TurnstileWidget({ siteKey, onVerify, onExpire, onError, 
           Loading security check…
         </div>
       ) : null}
+      {status === 'error' ? (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          Security check failed to load. Refresh the page or try again in a moment.
+        </div>
+      ) : null}
       <div ref={containerRef} className="min-h-[65px] w-full" />
     </div>
   );

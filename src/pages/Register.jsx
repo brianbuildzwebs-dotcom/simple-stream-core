@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTurnstileGate } from "@/lib/use-turnstile-gate";
 import { Link, Navigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/AuthContext";
@@ -22,8 +23,6 @@ import usePageMeta from "@/hooks/usePageMeta";
 import TurnstileWidget from "@/components/auth/TurnstileWidget";
 import { verifyTurnstileToken } from "@/lib/turnstile-api";
 
-const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY?.trim() || "";
-
 export default function Register() {
   usePageMeta({
     title: `Start free trial — ${APP_NAME}`,
@@ -39,10 +38,14 @@ export default function Register() {
   const [showVerify, setShowVerify] = useState(false);
   const [otpCode, setOtpCode] = useState("");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
-  const [turnstileToken, setTurnstileToken] = useState("");
-
-  const turnstileRequired = Boolean(TURNSTILE_SITE_KEY);
-  const turnstileReady = !turnstileRequired || Boolean(turnstileToken);
+  const {
+    siteKey: turnstileSiteKey,
+    required: turnstileRequired,
+    ready: turnstileReady,
+    token: turnstileToken,
+    setToken: setTurnstileToken,
+    checking: turnstileChecking,
+  } = useTurnstileGate();
 
   const ensureTurnstile = async () => {
     if (!turnstileRequired) return;
@@ -51,6 +54,12 @@ export default function Register() {
     }
     await verifyTurnstileToken(turnstileToken);
   };
+
+  const signupBlockedReason = !acceptedTerms
+    ? "Check the Terms and Privacy box above to enable signup."
+    : turnstileRequired && !turnstileReady
+      ? "Complete the security check below."
+      : "";
 
   if (!isLoadingAuth && authChecked && isAuthenticated) {
     return <Navigate to="/dashboard" replace />;
@@ -276,19 +285,21 @@ export default function Register() {
       {turnstileRequired ? (
         <div className="mb-6">
           <TurnstileWidget
-            siteKey={TURNSTILE_SITE_KEY}
+            siteKey={turnstileSiteKey}
             onVerify={setTurnstileToken}
             onExpire={() => setTurnstileToken("")}
             onError={() => setTurnstileToken("")}
           />
         </div>
+      ) : turnstileChecking ? (
+        <p className="mb-6 text-center text-xs text-muted-foreground">Checking security settings…</p>
       ) : null}
 
       <Button
         variant="outline"
         className="w-full h-12 text-sm font-medium mb-6"
         onClick={handleGoogle}
-        disabled={loading || !acceptedTerms || !turnstileReady}
+        disabled={loading || !acceptedTerms || !turnstileReady || turnstileChecking}
       >
         {loading ? (
           <Loader2 className="w-5 h-5 mr-2 animate-spin" />
@@ -366,7 +377,7 @@ export default function Register() {
         <Button
           type="submit"
           className="w-full h-12 font-medium"
-          disabled={loading || !acceptedTerms || !turnstileReady}
+          disabled={loading || !acceptedTerms || !turnstileReady || turnstileChecking}
         >
           {loading ? (
             <>
@@ -377,6 +388,9 @@ export default function Register() {
             "Create account"
           )}
         </Button>
+        {signupBlockedReason ? (
+          <p className="text-center text-xs text-muted-foreground">{signupBlockedReason}</p>
+        ) : null}
       </form>
     </AuthLayout>
   );
