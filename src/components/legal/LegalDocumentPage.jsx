@@ -55,12 +55,6 @@ export default function LegalDocumentPage({ title, lastUpdated, sections, altern
             </section>
           ))}
         </div>
-
-        <p className="mt-8 text-xs text-muted-foreground leading-relaxed">
-          This document is provided for operational clarity before launch. It is not legal advice.
-          Have a qualified attorney review these policies for your business before relying on them in
-          court or regulatory matters.
-        </p>
       </main>
     </div>
   );
