@@ -65,7 +65,8 @@ export default function TurnstileWidget({ siteKey, onVerify, onExpire, onError, 
         widgetIdRef.current = turnstile.render(containerRef.current, {
           sitekey: siteKey,
           theme: 'dark',
-          size: 'flexible',
+          size: 'normal',
+          appearance: 'always',
           callback: (token) => {
             setStatus('ready');
             onVerifyRef.current?.(token);
